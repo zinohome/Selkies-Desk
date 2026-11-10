@@ -14,6 +14,8 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('fullscreen') }).strict(),
   z.object({ type: z.literal('layout'), target: z.enum(['sidebar', 'toolbar', 'focus', 'restore']) }).strict(),
   z.object({ type: z.literal('controls'), expanded: z.boolean() }).strict(),
+  // Dragging the assistive ball: offset from where the drag started; `done` drops it.
+  z.object({ type: z.literal('ballDrag'), dx: z.number().min(-20000).max(20000), dy: z.number().min(-20000).max(20000), done: z.boolean() }).strict(),
   z.object({ type: z.literal('modal'), open: z.boolean() }).strict(),
   z.object({ type: z.literal('clearPassword'), id: connectionID }).strict(),
   z.object({ type: z.literal('revokeCertificate'), id: connectionID }).strict(),
@@ -56,8 +58,10 @@ export type AppState = {
   layout: Layout;
   preferredLayout: Layout;
   controlsExpanded: boolean;
-  /** Pixels the expanded session controls hang below the top edge (macOS full screen). */
+  /** Strip at the top of the desktop the floating controls keep out of (macOS full screen). */
   controlsInset: number;
+  /** Which edge the assistive ball rests against; the opened row grows away from it. */
+  ballSide: 'left' | 'right';
   platform: { os: OS; name: string; /** The app draws its own title bar (macOS). */ integratedTitleBar: boolean };
   version: string;
   language: Language;

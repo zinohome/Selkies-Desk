@@ -21,22 +21,69 @@ export function desktopBounds(width: number, height: number, layout: Layout, str
 }
 
 /**
- * In macOS full screen, moving the pointer to the top edge slides the system menu bar and
- * the window's title strip over the top of the window, which makes anything placed there
- * impossible to click. This is the height kept clear of our own controls.
+ * In macOS full screen, moving the pointer to the top edge slides system chrome over the top of
+ * the window, and nothing underneath can be clicked while the pointer is on it.
+ * - The window's own title strip always slides in: measured at 31 px, kept clear with a margin.
+ * - The menu bar slides in above it. On a display with a camera housing the full-screen window
+ *   starts below that band, so the menu bar stays outside the window and costs nothing.
  */
-export const fullscreenRevealZone = 56;
-/** The toolbar would sit entirely inside that zone, so full screen on macOS always uses the floating controls instead. */
-export function effectiveLayout(layout: Layout, macFullscreen: boolean): Layout {
-  return macFullscreen ? { ...layout, toolbar: false } : { ...layout };
+export const titleStripReveal = 34;
+export const menuBarReveal = 24;
+/** Pixels the full-screen controls must hang below the top of the window to stay clickable. */
+export function fullscreenInset(windowTop: number, displayTop: number) {
+  return titleStripReveal + (windowTop > displayTop ? 0 : menuBarReveal);
 }
 /**
- * Bounds of the floating session controls, centred over the desktop. Collapsed, they are a small
- * handle on the top edge. Expanded, the buttons hang `inset` pixels lower so they stay clickable.
+ * Full screen means the desktop alone: no sidebar and no toolbar, whatever the saved preference.
+ * On macOS the toolbar could not be used there anyway, because it would sit inside the reveal zone.
  */
+export function effectiveLayout(layout: Layout, fullscreen: boolean): Layout {
+  return fullscreen ? { sidebar: false, toolbar: false } : { ...layout };
+}
 export const controlsWidth = 320;
-export function controlsBounds(desktop: { x: number; width: number }, expanded: boolean, inset: number) {
-  // Only as wide as the pill itself, so the desktop on either side stays clickable.
-  const width = expanded ? Math.min(controlsWidth, desktop.width) : 64;
-  return { x: desktop.x + Math.round((desktop.width - width) / 2), y: 0, width, height: expanded ? 52 + inset : 22 };
+/**
+ * The floating session controls are an assistive ball, like the one on phones: a small round
+ * button that rests against the left or right edge of the desktop, can be dragged anywhere along
+ * it, and opens into a row of buttons when clicked. Nothing depends on the top edge of the screen.
+ */
+export const ballSize = 44;
+const ballMargin = 10;
+const ballSchemaShape = { side: z.enum(['left', 'right']), y: z.number().min(0).max(1) };
+export const ballSchema = z.object(ballSchemaShape).strict();
+/** `y` is the top of the ball as a fraction of the desktop height, so it survives resizing. */
+export type Ball = z.infer<typeof ballSchema>;
+export const defaultBall: Ball = { side: 'right', y: 0.3 };
+type Rect = { x: number; y: number; width: number; height: number };
+const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
+
+/**
+ * Where the controls sit inside the desktop. `topInset` keeps them out of the strip that macOS
+ * covers at the top of a full-screen window. Expanded, the row grows inwards from the ball's edge.
+ */
+export function ballBounds(desktop: Rect, ball: Ball, expanded: boolean, topInset = 0): Rect {
+  const width = expanded ? Math.min(controlsWidth, Math.max(ballSize, desktop.width - 2 * ballMargin)) : ballSize;
+  const height = ballSize;
+  const top = desktop.y + topInset + ballMargin;
+  const bottom = Math.max(top, desktop.y + desktop.height - height - ballMargin);
+  return {
+    x: ball.side === 'left' ? desktop.x + ballMargin : desktop.x + desktop.width - width - ballMargin,
+    y: clamp(desktop.y + Math.round(ball.y * desktop.height), top, bottom),
+    width, height
+  };
+}
+/** While being dragged the ball follows the pointer freely, but never leaves the desktop. */
+export function draggedBall(desktop: Rect, start: Rect, dx: number, dy: number, topInset = 0): Rect {
+  return {
+    x: clamp(start.x + dx, desktop.x, desktop.x + desktop.width - ballSize),
+    y: clamp(start.y + dy, desktop.y + topInset, desktop.y + desktop.height - ballSize),
+    width: ballSize, height: ballSize
+  };
+}
+/** On release the ball settles against whichever side edge is nearer and keeps its height. */
+export function snapBall(desktop: Rect, dropped: Rect): Ball {
+  const centre = dropped.x + dropped.width / 2;
+  return {
+    side: centre < desktop.x + desktop.width / 2 ? 'left' : 'right',
+    y: clamp((dropped.y - desktop.y) / Math.max(1, desktop.height), 0, 1)
+  };
 }

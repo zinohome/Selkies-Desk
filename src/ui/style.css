@@ -256,3 +256,9 @@ input.switch:checked::after { transform: translateX(16px); }
 .settings-body .shortcut-row { padding: 5px 0; border-bottom: 1px solid var(--border); }
 .settings-body .shortcut-row:last-child { border-bottom: 0; }
 .settings-body .button-row { margin-top: 12px; }
+
+/* Session buttons in the slim title strip: same mechanism as the toolbar, so they are never under a floating view. */
+.strip-actions { display: flex; align-items: center; gap: 1px; }
+.strip .icon-button { width: 24px; height: 22px; padding: 3px; border-radius: 5px; }
+.strip .action-divider { height: 12px; margin: 0 4px; }
+#strip-disconnect { color: var(--danger); }

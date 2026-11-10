@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { defaultLayout, layoutSchema, type Layout } from './layout';
+import { ballSchema, defaultBall, defaultLayout, layoutSchema, type Ball, type Layout } from './layout';
 import { t } from './i18n';
 import { commands } from './platform';
 
@@ -61,6 +61,7 @@ const stateSchema = z.object({
   connections: z.array(connectionSchema.extend({ id: z.uuid() })).max(200),
   certificates: z.record(z.string(), z.object({ origin: z.string(), fingerprint: z.string() }).strict()).default({}),
   layout: layoutSchema.default(defaultLayout),
+  ball: ballSchema.optional(),
   settings: settingsSchema.optional(),
   window: z.object({
     width: z.number().int().min(900).max(10000),
@@ -111,6 +112,11 @@ export class Store {
   get settings(): Settings { return settingsSchema.parse(this.state.settings ?? {}); }
   setSettings(patch: Partial<Settings>) {
     this.state.settings = settingsSchema.parse({ ...this.settings, ...patch });
+    this.flush();
+  }
+  get ball(): Ball { return { ...(this.state.ball ?? defaultBall) }; }
+  setBall(ball: Ball) {
+    this.state.ball = ballSchema.parse(ball);
     this.flush();
   }
   setLayout(layout: Layout) {

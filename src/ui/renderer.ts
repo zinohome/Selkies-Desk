@@ -2,7 +2,7 @@ import type { Action, AppState, Result } from '../protocol';
 import type { Connection } from '../model';
 import { setLanguage, t, type Language, type MessageKey } from '../i18n';
 import { acceleratorFromInput, commands, type Command } from '../platform';
-import { icon, renderStaticIcons, renderToolbarIcons } from './icons';
+import { icon, renderStaticIcons, renderToolbarIcons, setIcon, type IconName } from './icons';
 
 declare global {
   interface Window {
@@ -271,6 +271,18 @@ function render(state: AppState) {
   button('focus').title = t('ui.focus');
   button('toggle-toolbar').title = `${t('ui.hideToolbar')} · ${keys.toolbar}`;
   renderToolbarIcons(state.fullscreen, state.layout.sidebar);
+  // The slim title strip of windowed focus mode carries the same session actions as small icons.
+  const stripButton = (id: string, name: IconName, text: string, shortcut = '') => {
+    setIcon(button(id), name, 16);
+    button(id).setAttribute('aria-label', text);
+    button(id).title = shortcut ? `${text} · ${shortcut}` : text;
+  };
+  stripButton('strip-restore', 'regular', t('controls.regular'), keys.focus);
+  stripButton('strip-sidebar', 'panelLeft', sidebarLabel, keys.sidebar);
+  stripButton('strip-toolbar', 'panelTop', t('ui.showToolbar'), keys.toolbar);
+  stripButton('strip-fullscreen', 'maximize', t('ui.enterFullscreen'), keys.fullscreen);
+  stripButton('strip-reconnect', 'reconnect', t('ui.reconnect'), keys.reconnect);
+  stripButton('strip-disconnect', 'disconnect', t('ui.disconnect'));
   element('home').hidden = onDesktop;
   element('connection-state').hidden = !['failed', 'loading', 'waiting', 'disconnected'].includes(phase);
   element('state-title').textContent = t(`stateTitle.${phase}`);
@@ -425,6 +437,12 @@ button('fullscreen').onclick = () => { void invoke({ type: 'fullscreen' }); };
 button('toggle-sidebar').onclick = () => { void invoke({ type: 'layout', target: 'sidebar' }); };
 button('toggle-toolbar').onclick = () => { void invoke({ type: 'layout', target: 'toolbar' }); };
 button('focus').onclick = () => { void invoke({ type: 'layout', target: 'focus' }); };
+button('strip-restore').onclick = () => { void invoke({ type: 'layout', target: 'restore' }); };
+button('strip-sidebar').onclick = () => { void invoke({ type: 'layout', target: 'sidebar' }); };
+button('strip-toolbar').onclick = () => { void invoke({ type: 'layout', target: 'toolbar' }); };
+button('strip-fullscreen').onclick = () => { void invoke({ type: 'fullscreen' }); };
+button('strip-reconnect').onclick = () => { if (selected) connect(selected); };
+button('strip-disconnect').onclick = () => { void invoke({ type: 'disconnect' }); };
 button('import').onclick = () => { void invoke({ type: 'import' }); };
 button('export').onclick = () => { void invoke({ type: 'export' }); };
 

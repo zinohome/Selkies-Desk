@@ -28,6 +28,19 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     contents.sendInputEvent({ type: 'keyUp', keyCode: key.keyCode, modifiers: key.modifiers } as any);
   }, { target, keyCode, modifiers });
   const primary = process.platform === 'darwin' ? 'meta' : 'control';
+  const isFullScreen = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
+  // The controls slide in; positions are only meaningful once that short animation has finished.
+  const settled = (locator: ReturnType<Page['locator']>) => locator.evaluate(element =>
+    Promise.all((element.closest('nav')?.getAnimations() ?? []).map(animation => animation.finished)).then(() => undefined));
+  const controlsPage = () => application.windows().find(window => window.url().endsWith('/controls.html'))!;
+  // Where the session buttons live while the toolbar is hidden: in the slim title strip of a macOS
+  // window, otherwise (other systems, and full screen everywhere) in the floating controls.
+  const sessionButton = async (name: string) => {
+    if (strip && !(await isFullScreen())) return ui.locator('.strip').getByRole('button', { name, exact: true });
+    const page = controlsPage();
+    if (!(await state()).controlsExpanded) await page.evaluate(() => (window as any).desk.invoke({ type: 'controls', expanded: true }));
+    return page.getByRole('button', { name, exact: true });
+  };
   // macOS cannot move a window into full screen while the screen is locked. Those steps are
   // skipped then and recorded as an annotation, so a locked machine is never reported as a pass.
   const fullscreenAvailable = () => {
@@ -424,25 +437,34 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     expect(view.at(-1)?.bounds.x).toBe(232);
     await page.screenshot({ path: join(evidence, '05-remote-view.png') });
     if (fullscreenAvailable()) {
-      const isFullScreen = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
       await ui.getByRole('button', { name: '进入全屏', exact: true }).click();
       await expect.poll(isFullScreen).toBe(true);
-      if (process.platform === 'darwin') {
-        // The top edge belongs to the system menu bar in full screen: no toolbar there, and the
-        // floating controls open below it. The toolbar preference itself is kept.
-        const controlPage = application.windows().find(window => window.url().endsWith('/controls.html'))!;
-        await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: false });
-        expect((await state()).preferredLayout).toEqual({ sidebar: true, toolbar: true });
-        await expect.poll(async () => (await remoteBounds()).bounds.y).toBe(0);
-        await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
-        const exit = controlPage.getByRole('button', { name: '退出全屏', exact: true });
-        await expect(exit).toBeVisible();
-        expect((await exit.boundingBox())!.y).toBeGreaterThanOrEqual(56);
-        await expect(controlPage.getByRole('button', { name: '隐藏工具栏', exact: true })).toBeHidden();
-        await exit.click();
-      } else {
-        await ui.getByRole('button', { name: '退出全屏', exact: true }).click();
-      }
+      // Full screen is the desktop alone: no sidebar, no toolbar, every pixel of the screen.
+      // The saved layout is untouched and comes back afterwards.
+      await expect.poll(async () => (await state()).layout).toEqual({ sidebar: false, toolbar: false });
+      expect((await state()).preferredLayout).toEqual({ sidebar: true, toolbar: true });
+      await expect.poll(async () => { const now = await remoteBounds(); return now.bounds; }).toMatchObject({ x: 0, y: 0 });
+      const now = await remoteBounds();
+      expect([now.bounds.width, now.bounds.height]).toEqual(now.size);
+      await expect(ui.getByLabel('连接管理', { exact: true })).toBeHidden();
+      // The session controls are the assistive ball: resting on the right edge, clear of the strip
+      // macOS covers at the top, and opening in place when clicked.
+      const ballView = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
+        .find(child => 'webContents' in child && (child as any).webContents.getURL().endsWith('/controls.html'))!.getBounds());
+      const inset = (await state()).controlsInset;
+      if (process.platform === 'darwin') expect([34, 58]).toContain(inset);
+      const resting = await ballView();
+      expect([resting.width, resting.height]).toEqual([44, 44]);
+      expect(resting.x + resting.width).toBe(now.size[0] - 10);
+      expect(resting.y).toBeGreaterThanOrEqual(inset + 10);
+      await controlsPage().getByRole('button', { name: '展开会话操作条' }).click();
+      const exit = controlsPage().getByRole('button', { name: '退出全屏', exact: true });
+      await expect(exit).toBeVisible();
+      const opened = await ballView();
+      expect([opened.y, opened.x + opened.width]).toEqual([resting.y, resting.x + resting.width]);
+      // Layout buttons are pointless in full screen.
+      await expect(controlsPage().getByRole('button', { name: /侧栏|工具栏|常规模式/ })).toHaveCount(0);
+      await exit.click();
       await expect.poll(isFullScreen).toBe(false);
       await expect(ui.getByRole('button', { name: '进入全屏', exact: true })).toBeVisible();
       expect((await state()).layout).toEqual({ sidebar: true, toolbar: true });
@@ -461,7 +483,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       (window as any).layoutProbe = crypto.randomUUID();
       return (window as any).layoutProbe;
     });
-    const controlPage = application.windows().find(window => window.url().endsWith('/controls.html'))!;
+    const controlPage = controlsPage();
     expect(controlPage).toBeTruthy();
     const bounds = remoteBounds;
     await ui.getByRole('button', { name: '隐藏侧栏', exact: true }).click();
@@ -472,29 +494,32 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     const full = await bounds();
     expect(full.bounds).toEqual({ x: 0, y: strip, width: full.size[0], height: full.size[1] - strip });
     expect(full.visible).toBe(true);
-    await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
-    await controlPage.getByRole('button', { name: '显示侧栏', exact: true }).click();
+    // In a macOS window the title strip holds the buttons, so no floating view sits on top of the title bar.
+    const floating = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
+      .find(child => 'webContents' in child && (child as any).webContents.getURL().endsWith('/controls.html'))!.getVisible());
+    expect(await floating()).toBe(!strip);
+    await (await sessionButton('显示侧栏')).click();
     await expect.poll(async () => (await bounds()).bounds.x).toBe(232);
     expect((await bounds()).bounds.y).toBe(strip);
-    await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
     const rejected = await controlPage.evaluate(() => (window as any).desk.invoke({ type: 'delete', id: crypto.randomUUID() }));
     expect(rejected).toMatchObject({ ok: false, error: '悬浮操作条无权执行此操作。' });
-    await controlPage.getByRole('button', { name: '常规模式', exact: true }).click();
+    await (await sessionButton('常规模式')).click();
     await expect.poll(async () => (await bounds()).bounds.y).toBe(52);
     await ui.getByRole('button', { name: '专注模式', exact: true }).click();
     await expect.poll(async () => (await bounds()).bounds.x).toBe(0);
     expect((await bounds()).bounds.y).toBe(strip);
-    await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
-    await controlPage.screenshot({ path: join(evidence, '06-focus-controls.png') });
+    await ui.screenshot({ path: join(evidence, '09-focus-strip.png') });
     if (fullscreenAvailable()) {
-      await controlPage.getByRole('button', { name: '进入全屏', exact: true }).click();
-      await expect(controlPage.getByRole('button', { name: '退出全屏', exact: true })).toBeVisible();
+      await (await sessionButton('进入全屏')).click();
+      await expect.poll(isFullScreen).toBe(true);
       // Full screen has no title bar, so the desktop takes every pixel.
       await expect.poll(async () => { const now = await bounds(); return now.bounds.y === 0 && now.bounds.height === now.size[1]; }).toBe(true);
-      await controlPage.getByRole('button', { name: '退出全屏', exact: true }).click();
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())).toBe(false);
+      expect(await floating()).toBe(true);
+      await controlPage.screenshot({ path: join(evidence, '06-focus-controls.png') });
+      await (await sessionButton('退出全屏')).click();
+      await expect.poll(isFullScreen).toBe(false);
     }
-    await controlPage.getByRole('button', { name: '常规模式', exact: true }).click();
+    await (await sessionButton('常规模式')).click();
     expect(await page.evaluate(() => (window as any).layoutProbe)).toBe(identity);
     expect(page.isClosed()).toBe(false);
     await expect.poll(() => first.streams).toBe(1);
@@ -836,52 +861,76 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     expect(await invoke({ type: 'save', connection })).toMatchObject({ ok: true });
   });
 
-  test('悬浮操作条用鼠标事件操作：移到手柄即展开，按钮可点；全屏时按钮在菜单栏遮挡区之下', async () => {
-    const controlPage = application.windows().find(window => window.url().endsWith('/controls.html'))!;
-    // Mouse events are injected into the controls view itself, the same path a physical mouse takes inside
-    // the app. They do not pass through the window server, so the system menu bar never slides down here.
-    const mouse = (type: string, x: number, y: number) => application.evaluate(({ webContents }, event) => {
-      const contents = webContents.getAllWebContents().find(contents => contents.getURL().endsWith('/controls.html'))!;
+  test('专注模式和全屏下的会话按钮用鼠标事件操作：标题条按钮可点；全屏时点悬浮球展开，可拖到另一侧并记住位置', async () => {
+    // Mouse events are injected into the view that owns the button, the same path a physical mouse takes
+    // inside the app. They do not pass through the window server, so the system menu bar never slides down here.
+    const mouse = (target: 'ui' | 'controls', type: string, x: number, y: number) => application.evaluate(({ webContents, BrowserWindow }, event) => {
+      const contents = event.target === 'ui' ? BrowserWindow.getAllWindows()[0].webContents
+        : webContents.getAllWebContents().find(contents => contents.getURL().endsWith('/controls.html'))!;
       contents.sendInputEvent({ type: event.type, x: event.x, y: event.y, button: 'left', clickCount: 1 } as any);
-    }, { type, x, y });
-    const hoverHandle = async () => {
-      await mouse('mouseMove', 32, 11);
-      await expect.poll(async () => (await state()).controlsExpanded).toBe(true);
-    };
-    const click = async (name: string) => {
-      const target = controlPage.getByRole('button', { name, exact: true });
-      await expect(target).toBeVisible();
-      const box = (await target.boundingBox())!;
+    }, { target, type, x, y });
+    const click = async (target: 'ui' | 'controls', locator: ReturnType<typeof ui.getByRole>) => {
+      await expect(locator).toBeVisible();
+      await settled(locator);
+      const box = (await locator.boundingBox())!;
       const x = Math.round(box.x + box.width / 2);
       const y = Math.round(box.y + box.height / 2);
-      await mouse('mouseMove', x, y);
-      await mouse('mouseDown', x, y);
-      await mouse('mouseUp', x, y);
+      await mouse(target, 'mouseMove', x, y);
+      await mouse(target, 'mouseDown', x, y);
+      await mouse(target, 'mouseUp', x, y);
       return box;
     };
-    const isFullScreen = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
+    const controlPage = controlsPage();
+    const openBall = async () => {
+      await mouse('controls', 'mouseMove', 22, 22);
+      await mouse('controls', 'mouseDown', 22, 22);
+      await mouse('controls', 'mouseUp', 22, 22);
+      await expect.poll(async () => (await state()).controlsExpanded).toBe(true);
+    };
+    const windowed = async (name: string) => {
+      if (strip) return click('ui', ui.locator('.strip').getByRole('button', { name, exact: true }));
+      await openBall();
+      return click('controls', controlPage.getByRole('button', { name, exact: true }));
+    };
     await invoke({ type: 'layout', target: 'focus' });
     await expect.poll(async () => (await state()).layout).toEqual({ sidebar: false, toolbar: false });
-    await hoverHandle();
-    // Every control is an icon with a readable name, and the pill is no wider than its view.
-    for (const name of ['常规模式', '显示侧栏', '显示工具栏', '进入全屏', '重连', '断开', '收起会话操作条']) {
-      const control = controlPage.getByRole('button', { name, exact: true });
-      await expect(control.locator('svg')).toHaveCount(1);
-      await expect(control).toHaveText('');
+    if (strip) {
+      // Every button in the 28 px strip is an icon with a readable name and sits inside the strip.
+      for (const name of ['常规模式', '显示侧栏', '显示工具栏', '进入全屏', '重连', '断开']) {
+        const control = ui.locator('.strip').getByRole('button', { name, exact: true });
+        await expect(control.locator('svg')).toHaveCount(1);
+        const box = (await control.boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(strip);
+      }
     }
-    await click('显示侧栏');
+    await windowed('显示侧栏');
     await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: false });
     if (fullscreenAvailable()) {
-      await hoverHandle();
-      await click('进入全屏');
+      await windowed('进入全屏');
       await expect.poll(isFullScreen).toBe(true);
-      await hoverHandle();
-      const exit = await click('退出全屏');
-      if (process.platform === 'darwin') expect(exit.y).toBeGreaterThanOrEqual(56);
+      // The ball waits quietly; a press without movement opens it, and it closes again by itself.
+      expect((await state()).controlsExpanded).toBe(false);
+      await openBall();
+      for (const name of ['退出全屏', '重连', '断开', '收起会话操作条']) await expect(controlPage.getByRole('button', { name, exact: true }).locator('svg')).toHaveCount(1);
+      await mouse('controls', 'mouseLeave', 400, 400);
+      await expect.poll(async () => (await state()).controlsExpanded, { timeout: 6000 }).toBe(false);
+      // Dropping it on the other half of the screen parks it on that edge, and the place is remembered.
+      const drag = (dx: number, dy: number, done: boolean) => controlPage.evaluate(value => (window as any).desk.invoke(value), { type: 'ballDrag', dx, dy, done });
+      await drag(-400, 60, false);
+      await drag(-900, 120, true);
+      await expect.poll(async () => (await state()).ballSide).toBe('left');
+      expect(JSON.parse(readFileSync(join(directory, 'profile', 'connections.json'), 'utf8')).ball.side).toBe('left');
+      expect((await remoteBounds()).visible).toBe(true);
+      await openBall();
+      const exit = await click('controls', controlPage.getByRole('button', { name: '退出全屏', exact: true }));
+      expect(exit.x).toBeLessThan(200);
       await expect.poll(isFullScreen).toBe(false);
+      await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: false });
+      await drag(2000, 0, true);
+      await expect.poll(async () => (await state()).ballSide).toBe('right');
     }
-    await hoverHandle();
-    await click('常规模式');
+    await windowed('常规模式');
     await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: true });
   });
 });

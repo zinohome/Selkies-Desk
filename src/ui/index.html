@@ -39,7 +39,19 @@
           <button id="toggle-toolbar" class="icon-button" data-i18n-attr="aria-label:ui.hideToolbar"></button>
         </div>
       </header>
-      <div class="strip drag"><span id="strip-title"></span></div>
+      <div class="strip drag">
+        <span id="strip-title"></span>
+        <span class="spacer"></span>
+        <div class="strip-actions">
+          <button id="strip-restore" class="icon-button"></button>
+          <button id="strip-sidebar" class="icon-button"></button>
+          <button id="strip-toolbar" class="icon-button"></button>
+          <span class="action-divider"></span>
+          <button id="strip-fullscreen" class="icon-button"></button>
+          <button id="strip-reconnect" class="icon-button"></button>
+          <button id="strip-disconnect" class="icon-button"></button>
+        </div>
+      </div>
       <section class="desktop" aria-live="polite">
         <div id="connection-state" class="connection-state" hidden>
           <h2 id="state-title"></h2>

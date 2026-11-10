@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, type Event, type Input, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, session, type Event, type Input, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,7 +7,7 @@ import { Store, matchesOrigin, parseImport } from './model';
 import { Vault } from './vault';
 import { Remote } from './remote';
 import { actionSchema, type Action, type AppState, type Result } from './protocol';
-import { controlsBounds, defaultLayout, desktopBounds, effectiveLayout, fullscreenRevealZone, homeLayout, stripHeight } from './layout';
+import { ballBounds, defaultLayout, desktopBounds, draggedBall, effectiveLayout, fullscreenInset, homeLayout, snapBall, stripHeight } from './layout';
 import { commands, effectiveShortcuts, matchShortcut, osOf, platformName, shortcutLabel, trustedStorage, validShortcut, type Command, type Shortcuts } from './platform';
 import { resolveLanguage, setLanguage, language, t } from './i18n';
 import { Thumbnails } from './thumbnails';
@@ -33,18 +33,26 @@ let controlsExpanded = false;
 let thumbnails: Thumbnails;
 let recording = false;
 let buttonPosition = '';
+/** Set while the assistive ball is being dragged: where it started and how far it has moved. */
+let ballDrag: { start: Electron.Rectangle; dx: number; dy: number } | undefined;
 const uiURL = pathToFileURL(join(__dirname, 'ui/index.html')).href;
 const controlsURL = pathToFileURL(join(__dirname, 'ui/controls.html')).href;
-const controlActions = new Set(['state', 'layout', 'controls', 'fullscreen', 'reconnect', 'disconnect']);
+const controlActions = new Set(['state', 'layout', 'controls', 'ballDrag', 'fullscreen', 'reconnect', 'disconnect']);
 
 const settings = () => store.settings;
 const shortcuts = () => effectiveShortcuts(os, settings().shortcuts);
 /** Space kept above the desktop for the drag strip when the toolbar is hidden. */
 const strip = () => integratedTitleBar && !window.isFullScreen() ? stripHeight : 0;
 const macFullscreen = () => os === 'mac' && window.isFullScreen();
-/** Layout actually on screen: the saved preference, except that macOS full screen never shows the toolbar. */
-const layout = () => effectiveLayout(store.layout, macFullscreen());
-const controlsInset = () => macFullscreen() ? fullscreenRevealZone : 0;
+/** Layout actually on screen: the saved preference, except that full screen shows the desktop alone. */
+const layout = () => effectiveLayout(store.layout, window.isFullScreen());
+/** In a macOS window the slim title strip carries the session buttons, so nothing has to float over the title bar. */
+const stripControls = () => integratedTitleBar && !window.isFullScreen();
+const controlsInset = () => {
+  if (!macFullscreen()) return 0;
+  const bounds = window.getBounds();
+  return fullscreenInset(bounds.y, screen.getDisplayMatching(bounds).bounds.y);
+};
 function applyLanguage() { setLanguage(resolveLanguage(settings().language, app.getLocale())); }
 function applyTheme() {
   nativeTheme.themeSource = settings().theme;
@@ -60,7 +68,7 @@ function state(): AppState {
     })),
     status: remote.status, prompt: remote.prompt,
     fullscreen: window.isFullScreen(), encryptionAvailable,
-    layout: remote.visible ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(),
+    layout: remote.visible ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
     platform: { os, name: platformName(os), integratedTitleBar },
     version: app.getVersion(), language: language(), settings: settings(), shortcuts: keys,
     shortcutLabels: Object.fromEntries(commands.map(command => [command, shortcutLabel(os, keys[command])])) as Shortcuts
@@ -93,11 +101,12 @@ function controlSender(event: IpcMainInvokeEvent) {
   return controls && event.sender === controls.webContents && event.senderFrame === controls.webContents.mainFrame && event.senderFrame.url === controlsURL;
 }
 function layoutControls() {
-  const visible = remote.visible && !layout().toolbar;
+  const visible = remote.visible && !layout().toolbar && !stripControls();
   controls.setVisible(visible);
   if (!visible) controlsExpanded = false;
   const [width, height] = window.getContentSize();
-  controls.setBounds(controlsBounds(desktopBounds(width, height, layout(), strip()), controlsExpanded, controlsInset()));
+  const desktop = desktopBounds(width, height, layout(), strip());
+  controls.setBounds(ballDrag ? draggedBall(desktop, ballDrag.start, ballDrag.dx, ballDrag.dy, controlsInset()) : ballBounds(desktop, store.ball, controlsExpanded, controlsInset()));
   window.contentView.addChildView(controls);
 }
 function transition(action: () => Promise<void>) {
@@ -186,6 +195,18 @@ async function perform(action: Action): Promise<Result> {
       publish();
       if (!action.expanded) remote.focus();
       break;
+    case 'ballDrag': {
+      controlsExpanded = false;
+      ballDrag = { start: ballDrag?.start ?? controls.getBounds(), dx: action.dx, dy: action.dy };
+      layoutControls();
+      if (action.done) {
+        const [width, height] = window.getContentSize();
+        store.setBall(snapBall(desktopBounds(width, height, layout(), strip()), controls.getBounds()));
+        ballDrag = undefined;
+        publish();
+      }
+      return { ok: true };
+    }
     case 'fullscreen': window.setFullScreen(!window.isFullScreen()); break;
     case 'answer': remote.answer(action); break;
     case 'clearPassword': store.get(action.id); await transition(() => remote.clearPassword(action.id)); break;
@@ -347,8 +368,8 @@ async function start() {
     }
   });
   window.on('resize', () => { remote.layout(); layoutControls(); });
-  window.on('enter-full-screen', () => { remote.layout(); publish(); });
-  window.on('leave-full-screen', () => { buttonPosition = ''; remote.layout(); publish(); });
+  window.on('enter-full-screen', () => { controlsExpanded = false; remote.layout(); publish(); });
+  window.on('leave-full-screen', () => { buttonPosition = ''; controlsExpanded = false; remote.layout(); publish(); });
   window.on('closed', () => { if (!controls.webContents.isDestroyed()) controls.webContents.close(); });
   window.on('close', event => {
     if (quitting) return;

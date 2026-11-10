@@ -1,13 +1,13 @@
 import {
   createElement, PanelLeftOpen, PanelLeftClose, SlidersHorizontal, Settings, RotateCw, Square, Play, Focus,
-  Maximize, Minimize, ChevronUp, Plus, Search, Monitor, Ellipsis, Keyboard, FolderInput, PanelLeft, PanelTop, PanelsTopLeft
+  Maximize, Minimize, ChevronUp, Plus, Search, Monitor, Ellipsis, Keyboard, FolderInput, PanelLeft, PanelTop, PanelsTopLeft, X
 } from 'lucide';
 
 const icons = {
   sidebarOpen: PanelLeftOpen, sidebarClose: PanelLeftClose, connectionSettings: SlidersHorizontal, settings: Settings,
   reconnect: RotateCw, disconnect: Square, connect: Play, focus: Focus, maximize: Maximize, minimize: Minimize,
   collapse: ChevronUp, plus: Plus, search: Search, monitor: Monitor, more: Ellipsis, keyboard: Keyboard, data: FolderInput,
-  panelLeft: PanelLeft, panelTop: PanelTop, regular: PanelsTopLeft
+  panelLeft: PanelLeft, panelTop: PanelTop, regular: PanelsTopLeft, close: X
 };
 export type IconName = keyof typeof icons;
 
@@ -28,6 +28,7 @@ export function renderStaticIcons() {
     set(target, name, target.classList.contains('empty-icon') ? 40 : target.classList.contains('icon-button') ? 20 : 16);
   }
 }
+export function setIcon(target: HTMLElement, name: IconName, size = 20) { set(target, name, size); }
 export function renderToolbarIcons(fullscreen: boolean, sidebar: boolean) {
   const names: Record<string, IconName> = {
     'toggle-sidebar': sidebar ? 'sidebarClose' : 'sidebarOpen',

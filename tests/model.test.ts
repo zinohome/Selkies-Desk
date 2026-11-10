@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parseConnection, parseImport, settingsPatchSchema, Store, matchesOrigin, matchesNetworkOrigin, trustedCertificate } from '../src/model';
 import { Vault } from '../src/vault';
 import { Permissions } from '../src/permissions';
-import { controlsBounds, desktopBounds, effectiveLayout, fullscreenRevealZone } from '../src/layout';
+import { ballBounds, defaultBall, desktopBounds, draggedBall, effectiveLayout, fullscreenInset, snapBall } from '../src/layout';
 import { acceleratorFromInput, defaultShortcuts, effectiveShortcuts, matchShortcut, shortcutLabel, trustedStorage, validShortcut } from '../src/platform';
 import { retryable, retryDelay } from '../src/retry';
 import { dictionary, messageKeys, resolveLanguage, setLanguage, t } from '../src/i18n';
@@ -331,20 +331,47 @@ test('Linux 没有系统密钥环时不把密码写入磁盘，其他系统沿�
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('macOS 全屏时不显示顶部工具栏，会话操作条展开后悬在系统菜单栏遮挡区之下', () => {
-  // The saved preference is untouched; only what is drawn changes.
+test('全屏只显示桌面；悬浮球靠边停放、可拖动吸附，展开的按钮向内生长，并避开 macOS 全屏顶部被遮挡的区域', () => {
+  // The saved layout preference is untouched; only what is drawn changes.
   const preferred = { sidebar: true, toolbar: true };
-  assert.deepEqual(effectiveLayout(preferred, true), { sidebar: true, toolbar: false });
+  assert.deepEqual(effectiveLayout(preferred, true), { sidebar: false, toolbar: false });
   assert.deepEqual(effectiveLayout(preferred, false), preferred);
-  assert.deepEqual(preferred, { sidebar: true, toolbar: true });
   const desktop = desktopBounds(1440, 900, effectiveLayout(preferred, true));
-  assert.deepEqual(desktop, { x: 232, y: 0, width: 1208, height: 900 });
-  // Collapsed: a 64 px handle on the top edge. Expanded: buttons start below the reveal zone.
-  assert.deepEqual(controlsBounds(desktop, false, fullscreenRevealZone), { x: 232 + 572, y: 0, width: 64, height: 22 });
-  const expanded = controlsBounds(desktop, true, fullscreenRevealZone);
-  assert.equal(expanded.height - 52, fullscreenRevealZone);
-  assert.ok(fullscreenRevealZone >= 52, 'must clear a 24 px menu bar plus a 28 px title strip');
-  // In a window nothing covers the top edge, so the buttons hang directly from it.
-  assert.deepEqual(controlsBounds(desktop, true, 0), { x: 232 + 444, y: 0, width: 320, height: 52 });
-  assert.equal(controlsBounds({ x: 0, width: 200 }, true, 0).width, 200);
+  assert.deepEqual(desktop, { x: 0, y: 0, width: 1440, height: 900 });
+  // Resting: a 44 px ball against the right edge, 30 % down.
+  assert.deepEqual(defaultBall, { side: 'right', y: 0.3 });
+  assert.deepEqual(ballBounds(desktop, defaultBall, false), { x: 1440 - 44 - 10, y: 270, width: 44, height: 44 });
+  // Opened: same height, same edge; the row grows inwards so the ball's place does not jump.
+  assert.deepEqual(ballBounds(desktop, defaultBall, true), { x: 1440 - 320 - 10, y: 270, width: 320, height: 44 });
+  assert.deepEqual(ballBounds(desktop, { side: 'left', y: 0.3 }, true), { x: 10, y: 270, width: 320, height: 44 });
+  // It follows the sidebar: positions are relative to the desktop, not the window.
+  const beside = desktopBounds(1440, 900, { sidebar: true, toolbar: false }, 28);
+  assert.deepEqual(ballBounds(beside, { side: 'left', y: 0 }, false), { x: 242, y: 38, width: 44, height: 44 });
+  // What macOS covers at the top of a full-screen window: the title strip (31 px measured), plus
+  // the menu bar where it slides over the window instead of sitting in the camera-housing band.
+  assert.equal(fullscreenInset(33, 0), 34);
+  assert.equal(fullscreenInset(0, 0), 58);
+  // A ball parked at the very top or bottom is kept clear of that strip and of the screen edge.
+  assert.equal(ballBounds(desktop, { side: 'right', y: 0 }, false, 34).y, 44);
+  assert.equal(ballBounds(desktop, { side: 'right', y: 1 }, false).y, 900 - 44 - 10);
+  // Dragging follows the pointer but stays on the desktop; dropping snaps to the nearer side.
+  const start = ballBounds(desktop, defaultBall, false);
+  assert.deepEqual(draggedBall(desktop, start, -900, 200), { x: 486, y: 470, width: 44, height: 44 });
+  assert.deepEqual(draggedBall(desktop, start, 500, -5000, 34), { x: 1396, y: 34, width: 44, height: 44 });
+  assert.deepEqual(snapBall(desktop, draggedBall(desktop, start, -900, 200)), { side: 'left', y: 470 / 900 });
+  assert.equal(snapBall(desktop, draggedBall(desktop, start, -300, 0)).side, 'right');
+  assert.equal(ballBounds({ x: 0, y: 0, width: 200, height: 300 }, defaultBall, true).width, 180);
+});
+
+test('悬浮球位置随配置保存，不随连接配置导出', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-ball-'));
+  try {
+    const store = new Store(directory);
+    assert.deepEqual(store.ball, defaultBall);
+    store.setBall({ side: 'left', y: 0.62 });
+    assert.deepEqual(new Store(directory).ball, { side: 'left', y: 0.62 });
+    assert.equal(store.export().includes('ball'), false);
+    assert.throws(() => store.setBall({ side: 'top' as never, y: 0.5 }));
+    assert.throws(() => store.setBall({ side: 'left', y: 3 }));
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
