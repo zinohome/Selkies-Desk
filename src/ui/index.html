@@ -137,6 +137,7 @@
       <div role="tablist" aria-orientation="vertical">
         <button role="tab" data-pane="general"><span data-icon="settings"></span><span data-i18n="settings.general"></span></button>
         <button role="tab" data-pane="session"><span data-icon="monitor"></span><span data-i18n="settings.session"></span></button>
+        <button role="tab" data-pane="video"><span data-icon="video"></span><span data-i18n="settings.video"></span></button>
         <button role="tab" data-pane="shortcuts"><span data-icon="keyboard"></span><span data-i18n="settings.shortcuts"></span></button>
         <button role="tab" data-pane="data"><span data-icon="data"></span><span data-i18n="settings.data"></span></button>
       </div>
@@ -159,6 +160,15 @@
         <label class="setting"><span><span data-i18n="settings.connectTimeout"></span><small data-i18n="settings.connectTimeoutHelp"></small></span><input type="number" class="number" id="set-connectTimeout" min="3" max="120" step="1" inputmode="numeric"></label>
         <label class="setting"><span><span data-i18n="settings.thumbnails"></span><small data-i18n="settings.thumbnailsHelp"></small></span><input type="checkbox" class="switch" id="set-thumbnails"></label>
         <label class="setting"><span><span data-i18n="settings.passSystemKeys"></span><small data-i18n="settings.passSystemKeysHelp"></small></span><input type="checkbox" class="switch" id="set-passSystemKeys"></label>
+      </section>
+      <section role="tabpanel" data-pane="video" hidden>
+        <label class="setting"><span><span data-i18n="settings.videoApply"></span><small data-i18n="settings.videoHelp"></small></span><input type="checkbox" class="switch" id="set-videoApply"></label>
+        <label class="setting"><span data-i18n="settings.videoEncoder"></span><select id="set-videoEncoder"></select></label>
+        <label class="setting"><span data-i18n="settings.videoFramerate"></span><input type="number" class="number" id="set-videoFramerate" min="10" max="240" step="1" inputmode="numeric"></label>
+        <label class="setting"><span data-i18n="settings.videoRateControl"></span>
+          <select id="set-videoRateControl"><option value="cbr" data-i18n="settings.videoCbr"></option><option value="crf" data-i18n="settings.videoCrf"></option></select>
+        </label>
+        <label class="setting"><span data-i18n="settings.videoBitrate"></span><input type="number" class="number" id="set-videoBitrate" min="1" max="200" step="1" inputmode="numeric"></label>
       </section>
       <section role="tabpanel" data-pane="shortcuts" hidden>
         <p class="help" data-i18n="settings.shortcutsHelp"></p>

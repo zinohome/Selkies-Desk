@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ballSchema, defaultBall, defaultLayout, layoutSchema, type Ball, type Layout } from './layout';
 import { t } from './i18n';
 import { commands } from './platform';
+import { videoEncoders } from './video';
 
 const httpURL = z.string().trim().max(2048).transform((value, context) => {
   try {
@@ -47,6 +48,13 @@ export const settingsSchema = z.object({
   connectTimeout: z.number().int().min(3).max(120).default(20),
   thumbnails: z.boolean().default(true),
   passSystemKeys: z.boolean().default(false),
+  /** Video settings applied to every connection when it starts. */
+  videoApply: z.boolean().default(true),
+  videoEncoder: z.enum(videoEncoders).default('h264enc'),
+  videoFramerate: z.number().int().min(10).max(240).default(45),
+  videoRateControl: z.enum(['cbr', 'crf']).default('cbr'),
+  /** Megabits per second, used with constant bitrate. */
+  videoBitrate: z.number().int().min(1).max(200).default(15),
   shortcuts: z.partialRecord(z.enum(commands), z.string().max(60)).default({})
 }).strict();
 export type Settings = z.infer<typeof settingsSchema>;
@@ -60,7 +68,12 @@ export const settingsPatchSchema = z.object({
   retryCount: z.number().int().min(1).max(20).optional(),
   connectTimeout: z.number().int().min(3).max(120).optional(),
   thumbnails: z.boolean().optional(),
-  passSystemKeys: z.boolean().optional()
+  passSystemKeys: z.boolean().optional(),
+  videoApply: z.boolean().optional(),
+  videoEncoder: z.enum(videoEncoders).optional(),
+  videoFramerate: z.number().int().min(10).max(240).optional(),
+  videoRateControl: z.enum(['cbr', 'crf']).optional(),
+  videoBitrate: z.number().int().min(1).max(200).optional()
 }).strict();
 const stateSchema = z.object({
   version: z.literal(1),

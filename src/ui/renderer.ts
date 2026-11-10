@@ -2,6 +2,7 @@ import type { Action, AppState, Result } from '../protocol';
 import type { Connection } from '../model';
 import { setLanguage, t, type Language, type MessageKey } from '../i18n';
 import { acceleratorFromInput, commands, type Command } from '../platform';
+import { videoEncoderNames, videoEncoders } from '../video';
 import { icon, renderStaticIcons, renderToolbarIcons, setIcon, type IconName } from './icons';
 
 declare global {
@@ -25,8 +26,9 @@ const settingsDialog = element<HTMLDialogElement>('settings-dialog');
 const switcher = element<HTMLDialogElement>('switcher');
 const form = element<HTMLFormElement>('connection-form');
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
-const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys'] as const;
-const numbers = ['retryCount', 'connectTimeout'] as const;
+const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys', 'videoApply'] as const;
+const numbers = ['retryCount', 'connectTimeout', 'videoFramerate', 'videoBitrate'] as const;
+const choices = ['videoEncoder', 'videoRateControl'] as const;
 let current: AppState;
 let selected: string | undefined;
 /** Connection the user just asked for; it stays selected while the previous session is still closing. */
@@ -258,6 +260,12 @@ function settingsForm() {
   for (const name of toggles) input(`set-${name}`).checked = current.settings[name];
   for (const name of numbers) if (document.activeElement !== input(`set-${name}`)) input(`set-${name}`).value = String(current.settings[name]);
   input('set-retryCount').disabled = !current.settings.autoReconnect;
+  const encoder = element<HTMLSelectElement>('set-videoEncoder');
+  if (!encoder.options.length) for (const value of videoEncoders) encoder.add(new Option(videoEncoderNames[value], value));
+  for (const name of choices) element<HTMLSelectElement>(`set-${name}`).value = current.settings[name];
+  // The video fields are only meaningful while the app manages them; bitrate only with constant bitrate.
+  for (const id of ['videoEncoder', 'videoFramerate', 'videoRateControl', 'videoBitrate']) input(`set-${id}`).disabled = !current.settings.videoApply;
+  if (current.settings.videoRateControl !== 'cbr') input('set-videoBitrate').disabled = true;
   element('build').textContent = t('settings.version', { version: current.version });
   shortcutRows();
 }
@@ -514,6 +522,7 @@ settingsDialog.oncancel = event => {
 element<HTMLSelectElement>('set-language').onchange = event => { void invoke({ type: 'settings', settings: { language: (event.target as HTMLSelectElement).value as AppState['settings']['language'] } }); };
 element<HTMLSelectElement>('set-theme').onchange = event => { void invoke({ type: 'settings', settings: { theme: (event.target as HTMLSelectElement).value as AppState['settings']['theme'] } }); };
 for (const name of toggles) input(`set-${name}`).onchange = () => { void invoke({ type: 'settings', settings: { [name]: input(`set-${name}`).checked } }); };
+for (const name of choices) element<HTMLSelectElement>(`set-${name}`).onchange = event => { void invoke({ type: 'settings', settings: { [name]: (event.target as HTMLSelectElement).value } }); };
 // A number outside the allowed range is put back to the nearest allowed value rather than rejected.
 for (const name of numbers) input(`set-${name}`).onchange = () => {
   const field = input(`set-${name}`);

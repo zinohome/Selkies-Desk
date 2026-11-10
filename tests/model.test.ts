@@ -10,6 +10,7 @@ import { fanArc, fanCentre, fanPositions, fanRadius, fanSize } from '../src/fan'
 import { ballBounds, defaultBall, desktopBounds, draggedBall, effectiveLayout, fullscreenInset, snapBall } from '../src/layout';
 import { acceleratorFromInput, defaultShortcuts, effectiveShortcuts, matchShortcut, shortcutLabel, trustedStorage, validShortcut } from '../src/platform';
 import { retryable, retryDelay } from '../src/retry';
+import { heldPickKeys, storagePrefix, videoStorage } from '../src/video';
 import { dictionary, messageKeys, resolveLanguage, setLanguage, t } from '../src/i18n';
 
 const input = { name: '工作台', url: 'https://example.test:8443', group: '开发', notes: '', username: 'alice' };
@@ -263,7 +264,7 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
   const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
   try {
     const store = new Store(directory);
-    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, shortcuts: {} });
+    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15, shortcuts: {} });
     store.setSettings({ theme: 'dark', language: 'en', shortcuts: { sidebar: 'Control+Shift+J' } });
     const reopened = new Store(directory);
     assert.equal(reopened.settings.theme, 'dark');
@@ -426,4 +427,24 @@ test('悬浮球位置随配置保存，不随连接配置导出', () => {
     writeFileSync(file, JSON.stringify({ ...saved, ball: { side: 'left', y: 0.25 } }));
     assert.deepEqual(new Store(directory).ball, { side: 'left', at: 0.25 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('视频设置按 Selkies 网页客户端的键名和单位写入：H.264、45 帧、CBR、15 Mbps', () => {
+  // The namespace is the page address with everything but letters, digits, ".", "_" and "-" replaced,
+  // which is what a Selkies page at this address is observed to use.
+  const prefix = storagePrefix('https://192.168.99.105:8443', '/');
+  assert.equal(prefix, 'https___192.168.99.105_8443_');
+  assert.equal(storagePrefix('https://desk.example.com', '/lab/'), 'https___desk.example.com_lab_');
+  assert.deepEqual(videoStorage(prefix, { encoder: 'h264enc', framerate: 45, rateControl: 'cbr', bitrateMbps: 15 }), {
+    'https___192.168.99.105_8443__encoder': 'h264enc',
+    'https___192.168.99.105_8443__framerate': '45',
+    'https___192.168.99.105_8443__rate_control_mode': 'cbr',
+    'https___192.168.99.105_8443__rate_control_mode_explicit_choice': 'true',
+    'https___192.168.99.105_8443__video_bitrate': '15000'
+  });
+  // A pick the client has parked would be put back over ours, so those entries are cleared.
+  assert.deepEqual(heldPickKeys(prefix), ['encoder', 'framerate', 'rate_control_mode', 'video_bitrate'].map(name => `${prefix}_${name}_pick`));
+  for (const bad of [{ videoFramerate: 9 }, { videoFramerate: 241 }, { videoBitrate: 0 }, { videoBitrate: 201 }, { videoEncoder: 'mpeg2' }, { videoRateControl: 'vbr' }]) {
+    assert.throws(() => settingsPatchSchema.parse(bad));
+  }
 });

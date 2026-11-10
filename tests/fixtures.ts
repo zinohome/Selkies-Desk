@@ -95,6 +95,8 @@ export class MockDesktop {
       <a href="/download">下载文件</a><input type="file" aria-label="上传文件"><a href="/redirect">跨源跳转</a>
       <a href="https://example.com" target="_blank">新窗口</a><button id="target">坐标测试</button><p id="point"></p>
       <script>
+      // What the page finds in its storage when its own script starts, the way the Selkies client reads its picks.
+      window.videoAtStart = Object.fromEntries(Object.keys(localStorage).filter(key => /_(encoder|framerate|rate_control_mode|rate_control_mode_explicit_choice|video_bitrate)$/.test(key)).map(key => [key, localStorage.getItem(key)]));
       const previous = localStorage.getItem('account'); document.querySelector('#isolation').textContent = 'previous=' + previous + '; cookie=' + document.cookie;
       localStorage.setItem('account', '${username}'); document.cookie='account=${username}; SameSite=Lax; Max-Age=86400';
       window.stream = new EventSource('/events');

@@ -1073,4 +1073,66 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       await invoke({ type: 'settings', settings: { autoReconnect: false, retryCount: 6, connectTimeout: 20 } });
     }
   });
+
+  test('视频设置在页面脚本运行前写入并可统一修改；远端页面不因此获得任何本地能力', async () => {
+    const reconnect = async () => {
+      await invoke({ type: 'reconnect' });
+      await expect.poll(async () => (await state()).status.phase).toBe('loaded');
+      return remote();
+    };
+    await ui.getByRole('button', { name: '研发工作台 · Alice', exact: true }).first().click();
+    await expect.poll(async () => (await state()).status.phase).toBe('loaded');
+    let page = await reconnect();
+    const prefix = first.origin.replace(/[^a-zA-Z0-9._-]/g, '_') + '_';
+    const expected = (encoder: string, framerate: string, mode: string, kbps: string) => ({
+      [`${prefix}_encoder`]: encoder, [`${prefix}_framerate`]: framerate, [`${prefix}_rate_control_mode`]: mode,
+      [`${prefix}_rate_control_mode_explicit_choice`]: 'true', [`${prefix}_video_bitrate`]: kbps
+    });
+    // Defaults: H.264, 45 FPS, constant bitrate, 15 Mbit/s, already there when the page's own script starts.
+    expect(await page.evaluate(() => (window as any).videoAtStart)).toEqual(expected('h264enc', '45', 'cbr', '15000'));
+    // The page itself still has no Node, no preload API and no channel to the app.
+    expect(await page.evaluate(() => ({
+      require: typeof (window as any).require, process: typeof (window as any).process, desk: typeof (window as any).desk,
+      electron: typeof (window as any).electron, ipc: typeof (window as any).ipcRenderer
+    }))).toEqual({ require: 'undefined', process: 'undefined', desk: 'undefined', electron: 'undefined', ipc: 'undefined' });
+    // The page's unrelated storage is left alone.
+    expect(await page.evaluate(() => localStorage.getItem('account'))).toBe('alice');
+
+    // Changed once in the app's settings, applied to the next connection.
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.getByRole('tab', { name: '视频' }).click();
+    await expect(ui.locator('#set-videoEncoder')).toHaveValue('h264enc');
+    await expect(ui.locator('#set-videoFramerate')).toHaveValue('45');
+    await expect(ui.locator('#set-videoBitrate')).toHaveValue('15');
+    await ui.locator('#set-videoEncoder').selectOption({ label: 'H.265 (HEVC)' });
+    await ui.locator('#set-videoFramerate').fill('60');
+    await ui.locator('#set-videoFramerate').blur();
+    await ui.locator('#set-videoBitrate').fill('999');
+    await ui.locator('#set-videoBitrate').blur();
+    await expect(ui.locator('#set-videoBitrate')).toHaveValue('200');
+    await ui.locator('#set-videoBitrate').fill('20');
+    await ui.locator('#set-videoBitrate').blur();
+    await expect.poll(async () => (await state()).settings.videoBitrate).toBe(20);
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
+    // A pick the Selkies page has parked must not come back over the app's value.
+    await page.evaluate(key => localStorage.setItem(key, 'jpeg'), `${prefix}_encoder_pick`);
+    page = await reconnect();
+    expect(await page.evaluate(() => (window as any).videoAtStart)).toEqual(expected('h265enc', '60', 'cbr', '20000'));
+    expect(await page.evaluate(key => localStorage.getItem(key), `${prefix}_encoder_pick`)).toBeNull();
+
+    // Constant quality: the bitrate field no longer applies. Turned off: the page's own values are kept.
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.getByRole('tab', { name: '视频' }).click();
+    await ui.locator('#set-videoRateControl').selectOption('crf');
+    await expect(ui.locator('#set-videoBitrate')).toBeDisabled();
+    await ui.locator('#set-videoApply').uncheck();
+    await expect(ui.locator('#set-videoEncoder')).toBeDisabled();
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.evaluate(key => localStorage.setItem(key, 'vp9enc'), `${prefix}_encoder`);
+    page = await reconnect();
+    expect((await page.evaluate(() => (window as any).videoAtStart))[`${prefix}_encoder`]).toBe('vp9enc');
+    await invoke({ type: 'settings', settings: { videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15 } });
+    page = await reconnect();
+    expect(await page.evaluate(() => (window as any).videoAtStart)).toEqual(expected('h264enc', '45', 'cbr', '15000'));
+  });
 });

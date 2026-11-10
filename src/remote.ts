@@ -1,6 +1,7 @@
 import { app, dialog, shell, session, WebContentsView, type BrowserWindow, type WebContents, type Session, type AuthenticationResponseDetails, type AuthInfo, type Certificate, type Event, type Input } from 'electron';
 import { X509Certificate, randomUUID } from 'node:crypto';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
+import { encodeVideoArgument } from './video';
 import { matchesOrigin, matchesNetworkOrigin, Store, trustedCertificate, type Connection, type Settings } from './model';
 import { t, type Message } from './i18n';
 import type { Thumbnails } from './thumbnails';
@@ -77,12 +78,20 @@ export class Remote {
     this.retries = 0;
     const partition = session.fromPartition(`persist:selkies-${connection.id}`);
     this.configureSession(partition, connection, generation);
+    const video = this.options.settings();
     const view = new WebContentsView({
       webPreferences: {
         session: partition, nodeIntegration: false, nodeIntegrationInSubFrames: false,
         contextIsolation: true, sandbox: true, webSecurity: true,
         allowRunningInsecureContent: false, webviewTag: false,
-        navigateOnDragDrop: false, spellcheck: false
+        navigateOnDragDrop: false, spellcheck: false,
+        // The preload only stores the app's video settings for the page to read; see remote-preload.ts.
+        ...(video.videoApply ? {
+          preload: join(__dirname, 'remote-preload.cjs'),
+          additionalArguments: [encodeVideoArgument(new URL(connection.url).origin, {
+            encoder: video.videoEncoder, framerate: video.videoFramerate, rateControl: video.videoRateControl, bitrateMbps: video.videoBitrate
+          })]
+        } : {})
       }
     });
     this.view = view;
