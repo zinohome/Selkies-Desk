@@ -1,6 +1,6 @@
 {
   "name": "selkies-desk",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "macOS Selkies 多服务器桌面客户端",
   "author": "Selkies Desk",
@@ -42,7 +42,7 @@
     },
     "artifactName": "Selkies-Desk-${version}-${arch}.${ext}",
     "dmg": {
-      "title": "Selkies Desk 0.2.1"
+      "title": "Selkies Desk 0.2.2"
     }
   },
   "devDependencies": {
@@ -52,6 +52,7 @@
     "electron": "45.2.3",
     "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
+    "lucide": "1.71.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "ws": "8.22.2"

@@ -188,7 +188,7 @@ function menu() {
       { label: '显示或隐藏侧栏', accelerator: 'Command+Alt+B', click: () => { void perform({ type: 'layout', target: 'sidebar' }); } },
       { label: '显示或隐藏工具栏', accelerator: 'Command+Alt+T', click: () => { void perform({ type: 'layout', target: 'toolbar' }); } },
       { label: '切换专注模式', accelerator: 'Command+Alt+Enter', click: () => { void perform({ type: 'layout', target: 'focus' }); } },
-      { label: '恢复完整布局', click: () => { void perform({ type: 'layout', target: 'restore' }); } }
+      { label: '常规模式', click: () => { void perform({ type: 'layout', target: 'restore' }); } }
     ] },
     { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, { role: 'zoom', label: '缩放' }, { role: 'togglefullscreen', label: '切换全屏' }] }
   ]));

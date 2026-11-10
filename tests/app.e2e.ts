@@ -429,9 +429,9 @@ test.describe.serial('macOS 客户端真实 Electron 行为', () => {
     await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
     const rejected = await controlPage.evaluate(() => (window as any).desk.invoke({ type: 'delete', id: crypto.randomUUID() }));
     expect(rejected).toMatchObject({ ok: false, error: '悬浮操作条无权执行此操作。' });
-    await controlPage.getByRole('button', { name: '恢复布局', exact: true }).click();
+    await controlPage.getByRole('button', { name: '常规模式', exact: true }).click();
     await expect.poll(async () => (await bounds()).bounds.y).toBe(52);
-    await ui.getByRole('button', { name: '专注', exact: true }).click();
+    await ui.getByRole('button', { name: '专注模式', exact: true }).click();
     await expect.poll(async () => (await bounds()).bounds.x).toBe(0);
     expect((await bounds()).bounds.y).toBe(0);
     await controlPage.getByRole('button', { name: '展开会话操作条' }).click();
@@ -440,7 +440,7 @@ test.describe.serial('macOS 客户端真实 Electron 行为', () => {
     await expect(controlPage.getByRole('button', { name: '退出全屏', exact: true })).toBeVisible();
     await controlPage.getByRole('button', { name: '退出全屏', exact: true }).click();
     await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())).toBe(false);
-    await controlPage.getByRole('button', { name: '恢复布局', exact: true }).click();
+    await controlPage.getByRole('button', { name: '常规模式', exact: true }).click();
     expect(await page.evaluate(() => (window as any).layoutProbe)).toBe(identity);
     expect(page.isClosed()).toBe(false);
     await expect.poll(() => first.streams).toBe(1);
@@ -451,7 +451,7 @@ test.describe.serial('macOS 客户端真实 Electron 行为', () => {
     const result = await ui.evaluate(async origin => (window as any).desk.invoke({
       type: 'save', connection: { name: '专注认证测试', url: origin, username: 'bob' }
     }), first.origin);
-    await ui.getByRole('button', { name: '专注', exact: true }).click();
+    await ui.getByRole('button', { name: '专注模式', exact: true }).click();
     await ui.evaluate(async id => (window as any).desk.invoke({ type: 'connect', id }), result.id);
     await expect(ui.getByRole('heading', { name: '服务器认证' })).toBeVisible();
     expect((await state()).layout).toEqual({ sidebar: true, toolbar: true });
@@ -461,7 +461,7 @@ test.describe.serial('macOS 客户端真实 Electron 行为', () => {
     expect((await state()).layout).toEqual({ sidebar: false, toolbar: false });
     await application.evaluate(({ Menu }) => {
       const view = Menu.getApplicationMenu()!.items.find(item => item.label === '显示')!;
-      view.submenu!.items.find(item => item.label === '恢复完整布局')!.click();
+      view.submenu!.items.find(item => item.label === '常规模式')!.click();
     });
     await expect(ui.getByRole('button', { name: '隐藏侧栏', exact: true })).toBeVisible();
     await ui.evaluate(async id => (window as any).desk.invoke({ type: 'delete', id }), result.id);

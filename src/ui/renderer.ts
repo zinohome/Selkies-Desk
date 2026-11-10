@@ -1,5 +1,6 @@
 import type { Action, AppState, Result } from '../protocol';
 import type { Connection } from '../model';
+import { renderToolbarIcons } from './icons';
 
 declare global {
   interface Window {
@@ -99,14 +100,16 @@ function render(state: AppState) {
   element('address').textContent = connection?.url || '你的远程工作空间';
   element('status').textContent = phases[phase];
   element('status-dot').className = phase;
-  button('toggle-sidebar').setAttribute('aria-label', state.layout.sidebar ? '隐藏侧栏' : '显示侧栏');
+  const sidebarLabel = state.layout.sidebar ? '隐藏侧栏' : '显示侧栏';
+  button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
+  button('toggle-sidebar').title = `${sidebarLabel} · ⌘⌥B`;
   button('settings').disabled = !connection;
   button('connect').disabled = !connection || phase === 'loading' || phase === 'loaded';
   button('disconnect').disabled = !active || !['loading', 'loaded', 'failed'].includes(phase);
   button('reconnect').disabled = !connection;
   button('fullscreen').setAttribute('aria-label', state.fullscreen ? '退出全屏' : '进入全屏');
   button('fullscreen').title = `${state.fullscreen ? '退出' : '进入'}全屏 · ⌃⌘F`;
-  button('fullscreen').textContent = state.fullscreen ? '⊡' : '⛶';
+  renderToolbarIcons(state.fullscreen, state.layout.sidebar);
   element('empty').hidden = active && ['loading', 'loaded'].includes(phase);
   element('connection-state').hidden = phase !== 'failed' && phase !== 'loading';
   element('state-title').textContent = { idle: '准备连接', loading: '正在连接服务器', loaded: '远程页面已加载', disconnected: '连接已断开', failed: '暂时无法连接' }[phase];
