@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+test-results/
+playwright-report/
+.DS_Store
+.qa/
+.env
+.env.*
+credentials.enc.json
+connections.json
+Partitions/
+*.key
+*.p12
+*.mobileprovision

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <title>Selkies Desk</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="renderer.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="连接管理">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">▣</span><div><strong>Selkies Desk</strong><span>远程桌面</span></div></div>
+      <div class="sidebar-tools"><button id="new" class="primary full" aria-label="新增连接"><span aria-hidden="true">＋</span> 新增连接</button><div class="search"><span aria-hidden="true">⌕</span><input id="search" aria-label="搜索连接" placeholder="搜索名称、地址或分组" autocomplete="off"></div></div>
+      <div class="list-label"><span>我的连接</span><span id="count">0</span></div>
+      <nav id="connections" aria-label="服务器列表"></nav>
+      <div class="sidebar-bottom"><div class="config-buttons"><button id="import">导入配置</button><button id="export">导出配置</button></div><p>每个连接拥有独立会话</p><span class="build">0.2.0 · macOS</span></div>
+    </aside>
+    <main>
+      <header class="main-header"><button id="toggle-sidebar" class="icon-button" aria-label="隐藏侧栏" title="显示或隐藏侧栏 · ⌘⌥B">◧</button><div class="heading"><h1 id="title">设备</h1><p id="address">你的远程工作空间</p></div><span class="status"><i id="status-dot"></i><span id="status">未连接</span></span><div class="actions"><button id="settings" class="icon-button" aria-label="连接设置" title="编辑连接与安全设置" disabled>⚙</button><button id="reconnect" disabled>重连</button><button id="disconnect" disabled>断开</button><button id="connect" class="primary" disabled>连接</button><span class="action-divider"></span><button id="focus" title="隐藏侧栏与工具栏 · ⌘⌥Enter">专注</button><button id="fullscreen" aria-label="进入全屏" title="进入全屏 · ⌃⌘F">⛶</button><button id="toggle-toolbar" class="icon-button" aria-label="隐藏工具栏" title="隐藏工具栏 · ⌘⌥T">⌃</button></div></header>
+      <section class="desktop" aria-live="polite">
+        <div id="connection-state" class="connection-state" hidden><div id="state-icon" class="state-icon">◌</div><h2 id="state-title"></h2><p id="state-detail"></p><button id="state-connect" class="primary">连接此服务器</button></div>
+        <div id="empty" class="empty">
+          <div class="center-heading"><div><p class="eyebrow">工作空间</p><h2>设备</h2><p>选择服务器，继续工作。</p></div><span class="center-hint">⌘⌥Enter 专注模式</span></div>
+          <div id="devices" class="device-grid"></div>
+          <div id="no-devices" class="no-devices"><span class="empty-monitor" aria-hidden="true">▣</span><h3>添加你的第一台服务器</h3><p>连接设置、登录和显示偏好分别保存。</p><button id="empty-new" class="primary">添加第一个连接</button></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="toast" role="status" hidden></div>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <form id="connection-form">
+      <div class="dialog-head"><span class="eyebrow">连接管理</span><h2 id="editor-title">新增连接</h2><p>每个条目拥有独立 Cookie、登录与显示设置。</p></div>
+      <div class="form-grid">
+        <label class="wide">连接名称<input name="name" required maxlength="80" placeholder="例如：研发工作台"></label>
+        <label class="wide">服务器地址<input name="url" required maxlength="2048" placeholder="https://server.example:8443" spellcheck="false"></label>
+        <p id="http-warning" class="warning wide" hidden>HTTP 会明文传输网页与 Basic 认证，请仅在可信网络使用。推荐 HTTPS。</p>
+        <label>分组<input name="group" maxlength="60" placeholder="例如：开发环境"></label>
+        <label>用户名<input name="username" maxlength="200" autocomplete="off" placeholder="可选，连接时再输入"></label>
+        <label class="wide">备注<textarea name="notes" maxlength="1000" rows="2" placeholder="用途、负责人或连接说明"></textarea></label>
+      </div>
+      <p class="field-help">不在地址中填写密码或令牌。密码在服务器请求认证时输入。</p>
+      <div id="security-settings" class="security-settings" hidden><div><span id="password-status"></span><button type="button" id="clear-password">清除记住的密码</button></div><div><span id="certificate-status"></span><button type="button" id="revoke-certificate">撤销证书信任</button></div><p>清除或撤销会断开当前连接，重连时重新确认。</p></div>
+      <p id="form-error" class="error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="delete" class="danger" hidden>删除连接</button><span class="spacer"></span><button type="button" id="editor-cancel">取消</button><button type="submit" class="primary">保存连接</button></div>
+    </form>
+  </dialog>
+  <dialog id="delete-dialog" aria-labelledby="delete-title"><h2 id="delete-title">删除此连接？</h2><p id="delete-name"></p><p class="field-help">将移除配置、加密密码、证书信任和此连接的网页数据。远端应用不会被结束。</p><div class="dialog-actions"><button id="keep">保留连接</button><button id="delete-confirm" class="danger-solid">确认删除</button></div></dialog>
+  <dialog id="auth-dialog" aria-labelledby="auth-title"><form id="auth-form"><span class="eyebrow">HTTP BASIC</span><h2 id="auth-title">服务器认证</h2><p id="auth-origin" class="origin"></p><p id="auth-retry" class="warning" hidden>认证未通过，请重新输入。</p><label>认证用户名<input id="auth-username" required maxlength="200" autocomplete="off"></label><label>认证密码<input id="auth-password" type="password" maxlength="4096" autocomplete="off"></label><label class="checkbox"><input type="checkbox" id="remember">加密记住密码</label><p id="encryption-note" class="field-help">使用由 macOS Keychain 保护密钥的加密存储；不会把明文密码写入配置。</p><div class="dialog-actions"><button type="button" id="auth-cancel">取消认证</button><button class="primary" type="submit">登录</button></div></form></dialog>
+  <dialog id="certificate-dialog" aria-labelledby="certificate-title"><span class="eyebrow">连接安全</span><h2 id="certificate-title">核对服务器证书</h2><p>系统无法验证此证书。请通过可信渠道核对指纹，确认是你的服务器后再信任。</p><dl><dt>服务器（含端口）</dt><dd data-testid="certificate-origin" id="certificate-origin"></dd><dt>SHA-256 指纹</dt><dd data-testid="certificate-fingerprint" id="certificate-fingerprint" class="fingerprint"></dd><dt>证书主体 / 签发者</dt><dd id="certificate-names"></dd><dt>验证错误 / 到期时间</dt><dd id="certificate-error"></dd></dl><p class="field-help">信任仅绑定此连接、此来源和此证书。证书变更后须重新确认，可随时在连接设置中撤销。</p><div class="dialog-actions"><button id="certificate-deny">拒绝连接</button><button class="primary" id="certificate-accept">信任此连接的此证书</button></div></dialog>
+</body>
+</html>

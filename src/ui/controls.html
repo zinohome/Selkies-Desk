@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
+  <title>会话操作条</title>
+  <link rel="stylesheet" href="controls.css">
+  <script src="controls.js" defer></script>
+</head>
+<body>
+  <button id="handle" aria-label="展开会话操作条" title="展开会话操作 · ⌘⌥Enter 恢复布局"><span></span></button>
+  <nav id="strip" aria-label="会话操作" hidden>
+    <button id="restore" title="恢复侧栏和顶部工具栏">恢复布局</button>
+    <button id="sidebar" title="⌘⌥B">侧栏</button>
+    <button id="toolbar" title="⌘⌥T">工具栏</button>
+    <span class="separator"></span>
+    <button id="fullscreen">进入全屏</button>
+    <button id="reconnect">重连</button>
+    <button id="disconnect">断开</button>
+    <button id="collapse" aria-label="收起会话操作条">⌃</button>
+  </nav>
+</body>
+</html>

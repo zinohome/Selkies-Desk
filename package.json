@@ -1,0 +1,62 @@
+{
+  "name": "selkies-desk",
+  "version": "0.2.0",
+  "private": true,
+  "description": "macOS Selkies 多服务器桌面客户端",
+  "author": "Selkies Desk",
+  "license": "UNLICENSED",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test:unit": "node --import tsx --test tests/model.test.ts",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run build && npm run test:e2e",
+    "package": "npm run build && electron-builder --mac dmg zip --arm64 --publish never"
+  },
+  "build": {
+    "appId": "local.selkies.desk",
+    "productName": "Selkies Desk",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "13.0.0",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "仅在您同意后，将麦克风用于当前 Selkies 连接。",
+        "NSCameraUsageDescription": "仅在您同意后，将摄像头用于当前 Selkies 连接。"
+      }
+    },
+    "artifactName": "Selkies-Desk-${version}-${arch}.${ext}",
+    "dmg": {
+      "title": "Selkies Desk 0.2.0"
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/ws": "8.18.2",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "ws": "8.22.2"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}
