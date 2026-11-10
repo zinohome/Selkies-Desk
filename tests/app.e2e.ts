@@ -974,4 +974,38 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await windowed('常规模式');
     await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: true });
   });
+
+  test('侧栏分组可以折叠和展开，折叠状态重启后保留；搜索时仍能找到折叠分组里的连接', async () => {
+    const extra = await invoke({ type: 'save', connection: { name: '测试机', url: 'https://other.test:8443', group: '第二组' } }) as any;
+    expect(extra.ok).toBe(true);
+    const sidebar = ui.getByLabel('连接管理', { exact: true });
+    const group = sidebar.getByRole('button', { name: '模拟环境', exact: true });
+    const alice = sidebar.getByRole('button', { name: '研发工作台 · Alice', exact: true });
+    const other = sidebar.getByRole('button', { name: '测试机', exact: true });
+    await expect(group).toHaveAttribute('aria-expanded', 'true');
+    await expect(alice).toBeVisible();
+    await group.click();
+    await expect(group).toHaveAttribute('aria-expanded', 'false');
+    await expect(alice).toHaveCount(0);
+    await expect(other).toBeVisible();
+    // The folded group still shows that it holds the live connection, and how many it has.
+    await expect(group.locator('.connection-light.loaded')).toHaveCount(1);
+    await expect(group.locator('small')).toHaveText(String((await state()).connections.length - 1));
+    // Searching looks inside folded groups as well.
+    await ui.getByPlaceholder('搜索名称、地址或分组').fill('alice');
+    await expect(alice).toBeVisible();
+    await ui.getByPlaceholder('搜索名称、地址或分组').fill('');
+    await expect(alice).toHaveCount(0);
+    await application.close();
+    application = await launch();
+    ui = await management();
+    const again = ui.getByLabel('连接管理', { exact: true });
+    await expect(again.getByRole('button', { name: '模拟环境', exact: true })).toHaveAttribute('aria-expanded', 'false');
+    await expect(again.getByRole('button', { name: '研发工作台 · Alice', exact: true })).toHaveCount(0);
+    await again.getByRole('button', { name: '模拟环境', exact: true }).click();
+    await expect(again.getByRole('button', { name: '研发工作台 · Alice', exact: true })).toBeVisible();
+    expect(await invoke({ type: 'delete', id: extra.id })).toMatchObject({ ok: true });
+    // With a single group left there is nothing to fold, so no heading is shown.
+    await expect(again.getByRole('button', { name: '模拟环境', exact: true })).toHaveCount(0);
+  });
 });

@@ -37,6 +37,17 @@ let recording: Command | undefined;
 let switcherIndex = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
 const previews = new Map<string, { stamp: number; url: string }>();
+/** Names of the sidebar groups the user has folded; remembered on this computer. */
+const collapsed = new Set<string>(loadCollapsed());
+function loadCollapsed(): string[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem('collapsedGroups') || '[]');
+    return Array.isArray(stored) ? stored.filter((entry): entry is string => typeof entry === 'string').slice(0, 200) : [];
+  } catch { return []; }
+}
+function saveCollapsed() {
+  try { localStorage.setItem('collapsedGroups', JSON.stringify([...collapsed])); } catch { /* folding still works for this session */ }
+}
 
 function toast(text: string) {
   element('toast').textContent = text;
@@ -80,13 +91,34 @@ function list() {
   const visible = current.connections.filter(connection => matches(connection, search));
   const groups = [...new Set(visible.map(connection => connection.group || t('ui.ungrouped')))];
   for (const group of groups) {
+    const members = visible.filter(connection => (connection.group || t('ui.ungrouped')) === group);
+    // A search looks inside every group, so collapsing only applies to the unfiltered list.
+    const folded = groups.length > 1 && !search && collapsed.has(group);
     if (groups.length > 1) {
-      const heading = document.createElement('p');
+      const heading = document.createElement('button');
       heading.className = 'group-title';
-      heading.textContent = group;
+      heading.setAttribute('aria-expanded', String(!folded));
+      heading.setAttribute('aria-label', group);
+      const name = document.createElement('span');
+      name.textContent = group;
+      const count = document.createElement('small');
+      count.textContent = String(members.length);
+      heading.append(icon(folded ? 'chevronRight' : 'chevronDown', 12), name, count);
+      // A folded group still shows that it holds the live connection.
+      if (folded && members.some(connection => connection.id === current.status.id)) {
+        const light = document.createElement('i');
+        light.className = `connection-light ${current.status.phase}`;
+        heading.append(light);
+      }
+      heading.onclick = () => {
+        if (collapsed.has(group)) collapsed.delete(group); else collapsed.add(group);
+        saveCollapsed();
+        list();
+      };
       container.append(heading);
     }
-    for (const connection of visible.filter(connection => (connection.group || t('ui.ungrouped')) === group)) {
+    if (folded) continue;
+    for (const connection of members) {
       const row = document.createElement('button');
       row.className = `connection-button${connection.id === selected ? ' selected' : ''}`;
       row.setAttribute('aria-label', connection.name);

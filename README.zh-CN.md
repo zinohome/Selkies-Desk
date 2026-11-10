@@ -1,8 +1,14 @@
-# Selkies Desk 0.4.0
+# Selkies Desk 0.4.1
 
 macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.4.0)，附 `SHA256SUMS-0.4.0.txt` 供核对。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。已发布的版本在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases)，最新发布的是 0.4.0。0.4.1 的安装包已在开发机构建，尚未发布 Release。
+
+## 0.4.1 的变化
+
+- 侧栏分组可以折叠。
+
+“连接后进入全屏”是每个连接自己的选项，在连接设置里勾选；“连接成功后自动进入专注模式”是全局设置。两者互不影响。
 
 ## 0.4.0 的变化
 
@@ -36,10 +42,10 @@ macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electro
 
 | 系统 | 文件 | 安装方式 | 状态 |
 | --- | --- | --- | --- |
-| macOS Apple Silicon | `Selkies-Desk-0.4.0-mac-arm64.dmg` | 拖入“应用程序” | 本机自动化测试通过 |
-| macOS Intel (x64) | `Selkies-Desk-0.4.0-mac-x64.dmg` | 拖入“应用程序” | 已构建，**未运行** |
-| Windows x64 | `Selkies-Desk-0.4.0-windows-x64-setup.exe` | 安装向导，可选安装目录，默认仅当前用户 | 已构建，**未运行** |
-| Ubuntu amd64 | `selkies-desk_0.4.0_amd64.deb` | `sudo apt install ./selkies-desk_0.4.0_amd64.deb` | 已构建，**未运行** |
+| macOS Apple Silicon | `Selkies-Desk-0.4.1-mac-arm64.dmg` | 拖入“应用程序” | 本机自动化测试通过 |
+| macOS Intel (x64) | `Selkies-Desk-0.4.1-mac-x64.dmg` | 拖入“应用程序” | 已构建，**未运行** |
+| Windows x64 | `Selkies-Desk-0.4.1-windows-x64-setup.exe` | 安装向导，可选安装目录，默认仅当前用户 | 已构建，**未运行** |
+| Ubuntu amd64 | `selkies-desk_0.4.1_amd64.deb` | `sudo apt install ./selkies-desk_0.4.1_amd64.deb` | 已构建，**未运行** |
 
 Intel Mac、Windows 和 Ubuntu 的安装包只做了文件结构检查（架构、签名一致性、deb 控制信息和依赖）。开发机没有 Rosetta、Windows 或 Linux 环境，安装、启动、视频解码、输入法、剪贴板和密码保存都需要在对应系统实测。Windows 安装包没有代码签名，SmartScreen 会提示未知发布者。
 
@@ -61,8 +67,8 @@ Ubuntu 的 `Ctrl+Alt+T` 是系统终端快捷键，所以 Windows 和 Ubuntu 的
 
 ## 安装与首次连接（macOS）
 
-1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.4.0.txt` 核对文件。
-2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.4.0-mac-arm64.zip` 使用其中的应用。
+1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.4.1.txt` 核对文件。
+2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.4.1-mac-arm64.zip` 使用其中的应用。
 3. 下载的未公证应用可能被 Gatekeeper 阻止。确认文件来源、校验和与风险后，可使用 macOS 系统提供的单个应用“仍要打开”流程；无需也不要全局关闭 Gatekeeper。若系统报告文件损坏，先重新下载核对校验和，或自行从源码构建。
 4. 点击“新增连接”，填写名称和服务器地址，例如 `https://服务器地址:8443`。不带协议时默认 HTTPS。8443 与 8444 可以分别保存为两个条目。
 5. 点击左侧条目连接。首次自签名证书会显示完整来源（含端口）、错误和 SHA-256 指纹；通过可信渠道核对后再确认。密码只在出现“服务器认证”时输入。
@@ -72,6 +78,7 @@ Ubuntu 的 `Ctrl+Alt+T` 是系统终端快捷键，所以 Windows 和 Ubuntu 的
 ## 日常操作
 
 - 左侧栏参考 Windows App 的导航样式：产品名、搜索、新增连接、连接列表（圆角高亮和状态圆点），底部是设置入口和版本号。点击条目即可连接或切换。
+- 侧栏里的连接按分组显示（有两个及以上分组时出现分组标题）。点击分组标题可以折叠或展开，标题上显示该组的连接数；折叠的分组里如果有正在使用的连接，标题上会有状态圆点。折叠状态保存在本机。搜索时会同时查找折叠分组里的连接。
 - 首页是连接卡片，显示上次会话的缩略图、名称和地址；点击卡片连接，点击 `···` 编辑。搜索同时筛选侧栏和卡片。切换、断开或关闭都会销毁原页面并关闭网络连接；远端应用不会被主动结束。
 - **连接成功后默认自动进入专注模式**，侧栏和工具栏同时收起。不需要时在“设置 → 会话”里关闭。
 - macOS 上工具栏同时是窗口标题栏，可以直接拖动。专注模式下保留一条 28 DIP 的细标题条：左边是连接名称，右边是一组小图标（常规模式、侧栏、工具栏、全屏、重连、断开），空白处可拖动窗口。按钮就在标题条里，没有悬浮在标题栏上方的控件。

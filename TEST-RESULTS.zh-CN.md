@@ -1,6 +1,25 @@
 # Selkies Desk 本机测试结果
 
-## 0.4.0（当前版本）
+## 0.4.1（当前版本）
+
+测试日期 2026-11-11，同一台 Mac。相对 0.4.0 只增加了侧栏分组折叠。
+
+- 23 项单元测试、27 项 Electron E2E 通过，源码和打包后的 arm64 应用各运行一遍（打包应用第一次运行时，第 2 项因新签名的应用等待钥匙串授权而超时；重跑后 27 项全部通过。）新增 1 项：分组折叠与展开、折叠分组显示连接数和活动状态、搜索能找到折叠分组里的连接、重启后保留折叠状态、只剩一个分组时不显示分组标题。
+- 四种安装包重新构建，DMG 和签名校验通过。Intel Mac、Windows、Ubuntu 包仍未在对应系统运行。
+
+0.4.1 安装包 SHA256：
+
+```text
+7caad60934865e8c248b04befce43b9bed85861a6924f3ecbf7a1555549c04c2  Selkies-Desk-0.4.1-mac-arm64.dmg
+820ffcd9c2a6056ecdc96fb061258af47ff19d1efcbacf208a17b6f58b32dc24  Selkies-Desk-0.4.1-mac-arm64.zip
+4dfccc7eb8024a84bcad26944b04c9d609d02e443589399433a02ff369cc7018  Selkies-Desk-0.4.1-mac-x64.dmg
+0865a4d5c42848c9cacbc2204786387ccd7fd92b0ebd2708f61ca64684f19f10  Selkies-Desk-0.4.1-mac-x64.zip
+a9eda23637b798cc7ca7c80029fe02f4d14d8c7d82f22908d4229706fd199aa3  Selkies-Desk-0.4.1-windows-x64-setup.exe
+51da872b4da5650e5a8c16e0a5e7979937132e1b945c1c6ab0e7e38d37fd0c1d  selkies-desk_0.4.1_amd64.deb
+```
+
+## 0.4.0
+
 
 测试日期 2026-11-10，构建和测试机为 macOS 27.2 / Apple Silicon arm64，Electron 45.2.3。
 

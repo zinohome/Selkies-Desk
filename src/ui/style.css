@@ -107,7 +107,10 @@ button.full { display: flex; align-items: center; justify-content: center; gap: 
 .list-label { display: flex; justify-content: space-between; align-items: center; padding: 6px 20px 6px; font-size: 11px; font-weight: 600; color: var(--faint); }
 #count { background: var(--hover); border-radius: 9px; min-width: 20px; padding: 1px 6px; text-align: center; font-weight: 500; }
 #connections { padding: 0 8px 8px; overflow: auto; flex: 1; }
-.group-title { font-size: 11px; font-weight: 600; margin: 12px 12px 4px; color: var(--faint); }
+.group-title { display: flex; align-items: center; gap: 5px; width: 100%; margin: 8px 0 2px; padding: 5px 10px; border-color: transparent; border-radius: 6px; background: transparent; font-size: 11px; font-weight: 600; color: var(--faint); text-align: left; }
+.group-title:hover { background: var(--hover); color: var(--muted); }
+.group-title span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.group-title small { font-weight: 500; }
 /* Rows follow the Windows App navigation style: a rounded highlight with a short accent bar. */
 .connection-button { position: relative; display: flex; align-items: center; text-align: left; width: 100%; gap: 10px; padding: 7px 10px; margin-bottom: 2px; border-color: transparent; border-radius: 8px; background: transparent; }
 .connection-button:hover { background: var(--hover); }
