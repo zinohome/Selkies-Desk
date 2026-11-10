@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 import { matchesOrigin, matchesNetworkOrigin, Store, trustedCertificate, type Connection } from './model';
 import { Vault } from './vault';
 import type { Answer, Prompt, RemoteStatus } from './protocol';
-import { Permissions } from './permissions';
+import { Permissions, isClipboardPermission } from './permissions';
 import { desktopBounds } from './layout';
 
 export class Remote {
@@ -85,7 +85,10 @@ export class Remote {
       if (this.valid(generation)) this.update('loading', '正在加载服务器页面…');
     });
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
-      if (mainFrame && !inPlace && matchesOrigin(url, connection.url)) loadFailed = false;
+      if (mainFrame && !inPlace && this.valid(generation)) {
+        this.permissions.clear();
+        if (matchesOrigin(url, connection.url)) loadFailed = false;
+      }
     });
     contents.on('did-finish-load', () => {
       if (this.valid(generation) && !loadFailed) this.update('loaded', '网页已就绪；视频、输入和画质状态请查看 Selkies 自带面板。');
@@ -98,8 +101,18 @@ export class Remote {
     });
     contents.on('render-process-gone', () => {
       if (this.valid(generation)) {
+        this.permissions.clear();
         this.cancelPrompt();
         this.update('failed', '远端页面进程已退出，请重连。');
+      }
+    });
+    contents.once('destroyed', () => {
+      if (generation === this.generation && this.view === view) {
+        this.permissions.clear();
+        this.cancelPrompt();
+        this.view = undefined;
+        this.window.contentView.removeChildView(view);
+        this.update('failed', '远端页面已关闭，请重连。');
       }
     });
     contents.on('enter-html-full-screen', () => this.window.setFullScreen(true));
@@ -109,6 +122,7 @@ export class Remote {
   }
   async disconnect() {
     this.generation++;
+    this.permissions.clear();
     this.cancelPrompt();
     const view = this.view;
     this.view = undefined;
@@ -268,24 +282,29 @@ export class Remote {
     });
     partition.setPermissionCheckHandler((contents, permission, origin, details) => {
       return this.valid(generation) && contents === this.view?.webContents
-        && this.permissions.allows(connection, origin, permission, permission === 'media' ? details.mediaType || 'unknown' : '');
+        && (!details.requestingUrl || matchesOrigin(details.requestingUrl, connection.url))
+        && (!details.securityOrigin || matchesOrigin(details.securityOrigin, connection.url))
+        && matchesOrigin(origin, connection.url)
+        && (isClipboardPermission(permission) || this.permissions.allows(connection, origin, permission, permission === 'media' ? details.mediaType || 'unknown' : ''));
     });
     partition.setPermissionRequestHandler((contents, permission, callback, details) => {
       const safe = ['clipboard-read', 'clipboard-sanitized-write', 'deprecated-sync-clipboard-read', 'media', 'pointerLock', 'keyboardLock', 'fullscreen', 'speaker-selection', 'local-network', 'local-network-access', 'loopback-network'];
       const requested = details.requestingUrl;
       if (!requested || !this.valid(generation) || contents !== this.view?.webContents || !matchesOrigin(requested, connection.url) || !safe.includes(permission)) { callback(false); return; }
+      // Clipboard sharing is enabled for the configured active origin by product policy.
+      if (isClipboardPermission(permission)) { callback(true); return; }
       const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined;
-      const labels: Record<string, string> = { 'clipboard-read': '读取剪贴板', 'clipboard-sanitized-write': '写入剪贴板', 'deprecated-sync-clipboard-read': '读取剪贴板', media: `音视频设备（${mediaTypes?.join('、') || '摄像头 / 麦克风'}）`, pointerLock: '锁定鼠标指针', keyboardLock: '捕获键盘', fullscreen: '进入全屏', 'speaker-selection': '选择音频输出设备', 'local-network': '访问局域网', 'local-network-access': '访问局域网', 'loopback-network': '访问本机网络' };
-      void dialog.showMessageBox(this.window, {
-        type: 'question', title: '远端权限请求',
-        message: `允许“${connection.name}”${labels[permission]}？`,
-        detail: `${new URL(connection.url).origin}\n仅在您信任该服务器时允许；授权在退出应用后失效。`,
-        buttons: ['拒绝', '允许'], defaultId: 0, cancelId: 0
-      }).then(result => {
-        const allowed = result.response === 1 && this.valid(generation);
-        if (allowed) this.permissions.grant(connection, permission, mediaTypes || []);
-        callback(allowed);
-      }, () => callback(false));
+      const labels: Record<string, string> = { media: `音视频设备（${mediaTypes?.join('、') || '摄像头 / 麦克风'}）`, pointerLock: '锁定鼠标指针', keyboardLock: '捕获键盘', fullscreen: '进入全屏', 'speaker-selection': '选择音频输出设备', 'local-network': '访问局域网', 'local-network-access': '访问局域网', 'loopback-network': '访问本机网络' };
+      void this.permissions.request(connection, requested, permission, mediaTypes || [], async signal => {
+        if (!this.valid(generation) || contents !== this.view?.webContents) return false;
+        const result = await dialog.showMessageBox(this.window, {
+          type: 'question', title: '远端权限请求',
+          message: `允许“${connection.name}”${labels[permission]}？`,
+          detail: `${new URL(connection.url).origin}\n仅在您信任该服务器时允许。允许或拒绝将用于当前页面会话；重连、切换、断开或刷新页面后失效。要重新授权，请使用“重连”。`,
+          buttons: ['拒绝', '允许'], defaultId: 0, cancelId: 0, signal
+        });
+        return result.response === 1 && !signal.aborted && this.valid(generation) && contents === this.view?.webContents;
+      }).then(allowed => callback(allowed && this.valid(generation) && contents === this.view?.webContents));
     });
     partition.removeAllListeners('will-download');
     partition.on('will-download', (event, item, contents) => {

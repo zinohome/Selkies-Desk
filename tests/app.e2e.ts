@@ -152,45 +152,193 @@ test.describe.serial('macOS 客户端真实 Electron 行为', () => {
     await expect.poll(() => { try { return readFileSync(download, 'utf8'); } catch { return ''; } }).toBe('Mock desktop download');
   });
 
-  test('剪贴板先询问用户；拒绝不读，允许后原生复制粘贴可用', async () => {
-    const page = await remote();
-    await application.evaluate(async ({ dialog, clipboard, ClipboardItem }) => {
+  test('剪贴板默认允许：持续轮询与并发读写均不询问，重连后仍可用', async () => {
+    await application.evaluate(async ({ dialog, clipboard, ClipboardItem, session }, id) => {
       const memory = globalThis as any;
+      const partition = session.fromPartition(`persist:selkies-${id}`);
+      memory.originalCheckSetter = partition.setPermissionCheckHandler.bind(partition);
+      memory.originalRequestSetter = partition.setPermissionRequestHandler.bind(partition);
+      memory.permissionEvents = [];
+      partition.setPermissionCheckHandler = ((handler: any) => {
+        memory.checkHandler = handler;
+        memory.originalCheckSetter((...args: any[]) => {
+          const result = handler(...args);
+          memory.permissionEvents.push({ stage: 'check', permission: args[1], origin: args[2], result });
+          return result;
+        });
+      }) as typeof partition.setPermissionCheckHandler;
+      partition.setPermissionRequestHandler = ((handler: any) => {
+        memory.requestHandler = handler;
+        memory.originalRequestSetter((...args: any[]) => {
+          memory.permissionEvents.push({ stage: 'request', permission: args[1], origin: args[3].requestingUrl });
+          handler(...args);
+        });
+      }) as typeof partition.setPermissionRequestHandler;
       memory.originalPermissionDialog = dialog.showMessageBox;
-      memory.clipboardSnapshot = await Promise.all((await clipboard.read()).map(async item => {
+      memory.clipboardSnapshot = await Promise.all((await clipboard.read()).filter(item => item.types.length).map(async item => {
         const entries = await Promise.all(item.types.map(async type => [type, await item.getType(type)]));
         return new ClipboardItem(Object.fromEntries(entries));
       }));
-      memory.allowClipboard = false;
       memory.permissionPrompts = 0;
       await clipboard.writeText('fixture-剪贴板');
       dialog.showMessageBox = (async (...args: any[]) => {
-        const options = args[1] || args[0];
-        if (options.title === '远端权限请求') {
+        if ((args[1] || args[0]).title === '远端权限请求') {
           memory.permissionPrompts++;
-          return { response: memory.allowClipboard ? 1 : 0, checkboxChecked: false };
+          return { response: 0, checkboxChecked: false };
         }
         return memory.originalPermissionDialog(...args);
       }) as typeof dialog.showMessageBox;
-    });
+    }, aliceID);
     try {
-      await page.getByRole('button', { name: '读取剪贴板' }).click();
-      await expect(page.locator('#clip')).toHaveText('denied');
-      await application.evaluate(() => { (globalThis as any).allowClipboard = true; });
-      await page.getByRole('button', { name: '读取剪贴板' }).click();
-      await expect(page.locator('#clip')).toHaveText('fixture-剪贴板');
+      for (let session = 0; session < 2; session++) {
+        await ui.getByRole('button', { name: '重连', exact: true }).click();
+        await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+        const page = await remote();
+        await page.getByLabel('远端输入').click();
+        const results = await page.evaluate(async () => {
+          const read = () => navigator.clipboard.readText().catch(() => 'denied');
+          const values = await Promise.all(Array.from({ length: 32 }, read));
+          for (let i = 0; i < 50; i++) {
+            await new Promise(resolve => setTimeout(resolve, 20));
+            values.push(await read());
+          }
+          return values;
+        });
+        expect(results).toEqual(Array(82).fill('fixture-剪贴板'));
+        expect(await application.evaluate(() => (globalThis as any).permissionPrompts)).toBe(0);
+      }
+      const page = await remote();
       await page.getByRole('button', { name: '写入剪贴板' }).click();
       await expect(page.locator('#clip')).toHaveText('copied');
       expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('模拟剪贴板 中文');
-      expect(await application.evaluate(() => (globalThis as any).permissionPrompts)).toBeGreaterThanOrEqual(2);
+      const writes = await page.evaluate(async () => Promise.all(Array.from({ length: 16 }, () =>
+        navigator.clipboard.writeText('模拟剪贴板 中文').then(() => true, () => false))));
+      expect(writes).toEqual(Array(16).fill(true));
+      // Chromium may disable execCommand('paste') before any permission event.
+      // Test native paste independently, and record which events actually fire.
+      await page.getByLabel('远端输入').click();
+      const legacy = await page.evaluate(() => document.execCommand('paste'));
+      const events = await application.evaluate(() => (globalThis as any).permissionEvents);
+      writeFileSync(join(evidence, 'clipboard-events.json'), JSON.stringify({ legacy, events }, null, 2));
+      await application.evaluate(({ webContents }) => {
+        webContents.getAllWebContents().find(contents => /^https?:/.test(contents.getURL()))!.paste();
+      });
+      await expect(page.getByLabel('远端输入')).toHaveValue('模拟剪贴板 中文');
+      expect(await application.evaluate(() => (globalThis as any).permissionPrompts)).toBe(0);
     } finally {
-      await application.evaluate(async ({ dialog, clipboard }) => {
+      await application.evaluate(async ({ dialog, clipboard, session }, id) => {
         const memory = globalThis as any;
+        const partition = session.fromPartition(`persist:selkies-${id}`);
+        partition.setPermissionCheckHandler = memory.originalCheckSetter;
+        partition.setPermissionRequestHandler = memory.originalRequestSetter;
         dialog.showMessageBox = memory.originalPermissionDialog;
         if (memory.clipboardSnapshot.length) await clipboard.write(memory.clipboardSnapshot);
         else clipboard.clear();
         delete memory.clipboardSnapshot;
+      }, aliceID);
+    }
+  });
+
+  test('剪贴板检查与请求边界一致，其他权限拒绝复用且并发只询问一次；断开使旧处理器失效', async () => {
+    const result = await application.evaluate(async ({ webContents, BrowserWindow, dialog }, origin) => {
+      const memory = globalThis as any;
+      const remote = webContents.getAllWebContents().find(contents => /^https?:/.test(contents.getURL()))!;
+      const local = BrowserWindow.getAllWindows()[0].webContents;
+      const check = memory.checkHandler;
+      const request = memory.requestHandler;
+      const call = (contents: any, permission: string, url: string) => new Promise<boolean>(resolve => {
+        request(contents, permission, resolve, { requestingUrl: url, isMainFrame: true });
       });
+      const clipboard = [];
+      for (const permission of ['clipboard-read', 'clipboard-sanitized-write', 'deprecated-sync-clipboard-read']) {
+        clipboard.push({
+          allowed: await call(remote, permission, origin),
+          checked: check(remote, permission, origin, { requestingUrl: origin, isMainFrame: true }),
+          foreign: await call(remote, permission, 'https://foreign.invalid/'),
+          local: await call(local, permission, origin),
+          worker: check(null, permission, origin, { isMainFrame: false }),
+          foreignCheck: check(remote, permission, 'https://foreign.invalid', { isMainFrame: false })
+        });
+      }
+      let prompts = 0;
+      const original = dialog.showMessageBox;
+      dialog.showMessageBox = (async () => { prompts++; return { response: 0, checkboxChecked: false }; }) as typeof dialog.showMessageBox;
+      try {
+        const denied = await Promise.all(Array.from({ length: 20 }, () => call(remote, 'pointerLock', origin)));
+        denied.push(await call(remote, 'pointerLock', origin));
+        const media = check(remote, 'media', origin, { mediaType: 'audio', isMainFrame: true });
+        const unknown = await call(remote, 'geolocation', origin);
+        memory.boundaryCall = () => call(remote, 'clipboard-read', origin);
+        return { clipboard, denied, prompts, media, unknown };
+      } finally { dialog.showMessageBox = original; }
+    }, first.origin);
+    expect(result.clipboard).toEqual(Array(3).fill({ allowed: true, checked: true, foreign: false, local: false, worker: false, foreignCheck: false }));
+    expect(result.denied).toEqual(Array(21).fill(false));
+    expect(result.prompts).toBe(1);
+    expect(result.media).toBe(false);
+    expect(result.unknown).toBe(false);
+    await ui.getByRole('button', { name: '断开', exact: true }).click();
+    expect(await application.evaluate(() => (globalThis as any).boundaryCall())).toBe(false);
+    await ui.getByRole('button', { name: '重连', exact: true }).click();
+    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+  });
+
+  test('刷新、断开和页面销毁会关闭真实原生权限弹窗，待决回调只拒绝一次', async () => {
+    await application.evaluate(({ session, dialog }, id) => {
+      const memory = globalThis as any;
+      const partition = session.fromPartition(`persist:selkies-${id}`);
+      memory.lifecycleSetter = partition.setPermissionRequestHandler.bind(partition);
+      partition.setPermissionRequestHandler = ((handler: any) => {
+        memory.lifecycleRequest = handler;
+        memory.lifecycleSetter(handler);
+      }) as typeof partition.setPermissionRequestHandler;
+      memory.lifecycleDialog = dialog.showMessageBox;
+      dialog.showMessageBox = ((...args: any[]) => {
+        const options = args[1] || args[0];
+        const promise = memory.lifecycleDialog(...args);
+        if (options.title === '远端权限请求') {
+          memory.nativeSignal = options.signal;
+          memory.nativeClosed = false;
+          void promise.then(() => { memory.nativeClosed = true; });
+        }
+        return promise;
+      }) as typeof dialog.showMessageBox;
+    }, aliceID);
+    try {
+      for (const action of ['refresh', 'disconnect', 'destroy']) {
+        await ui.getByRole('button', { name: '重连', exact: true }).click();
+        await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+        await application.evaluate(({ webContents }, origin) => {
+          const memory = globalThis as any;
+          memory.lifecycleResults = [];
+          const contents = webContents.getAllWebContents().find(contents => /^https?:/.test(contents.getURL()))!;
+          // Call our registered boundary with real WebContents and a real native dialog.
+          for (let i = 0; i < 10; i++) memory.lifecycleRequest(contents, 'pointerLock',
+            (allowed: boolean) => memory.lifecycleResults.push(allowed), { requestingUrl: origin, isMainFrame: true });
+        }, first.origin);
+        await expect.poll(() => application.evaluate(() => !!(globalThis as any).nativeSignal && !(globalThis as any).nativeClosed)).toBe(true);
+        if (action === 'disconnect') await ui.evaluate(() => (window as any).desk.invoke({ type: 'disconnect' }));
+        else await application.evaluate(({ webContents }, action) => {
+          const contents = webContents.getAllWebContents().find(contents => /^https?:/.test(contents.getURL()))!;
+          if (action === 'refresh') contents.reload();
+          else contents.close({ waitForBeforeUnload: false });
+        }, action);
+        await expect.poll(() => application.evaluate(() => ({
+          results: (globalThis as any).lifecycleResults,
+          aborted: (globalThis as any).nativeSignal.aborted,
+          closed: (globalThis as any).nativeClosed
+        }))).toEqual({ results: Array(10).fill(false), aborted: true, closed: true });
+      }
+    } finally {
+      await application.evaluate(({ session, dialog }, id) => {
+        const memory = globalThis as any;
+        session.fromPartition(`persist:selkies-${id}`).setPermissionRequestHandler = memory.lifecycleSetter;
+        dialog.showMessageBox = memory.lifecycleDialog;
+      }, aliceID);
+      const reconnected = await ui.evaluate(() => (window as any).desk.invoke({ type: 'reconnect' }));
+      expect(reconnected.error).toBeUndefined();
+      expect(reconnected).toMatchObject({ ok: true });
+      await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
     }
   });
 

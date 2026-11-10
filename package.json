@@ -1,6 +1,6 @@
 {
   "name": "selkies-desk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "macOS Selkies 多服务器桌面客户端",
   "author": "Selkies Desk",
@@ -42,7 +42,7 @@
     },
     "artifactName": "Selkies-Desk-${version}-${arch}.${ext}",
     "dmg": {
-      "title": "Selkies Desk 0.2.0"
+      "title": "Selkies Desk 0.2.1"
     }
   },
   "devDependencies": {

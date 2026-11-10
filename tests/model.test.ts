@@ -125,6 +125,63 @@ test('权限绑定连接及 origin，允许音频不会隐式允许摄像头', (
   assert.equal(permissions.allows({ ...connection, url: 'https://elsewhere.test' }, 'https://elsewhere.test', 'clipboard-read'), false);
 });
 
+test('并发读取共用决定，拒绝结果在轮询中复用；两种读取事件一致，写权限独立', async () => {
+  const permissions = new Permissions();
+  const connection = { ...parseConnection(input), id: 'clipboard-poll' };
+  let prompts = 0;
+  let finish!: (allowed: boolean) => void;
+  const ask = () => { prompts++; return new Promise<boolean>(resolve => { finish = resolve; }); };
+  const requests = Array.from({ length: 20 }, (_, i) => permissions.request(connection, input.url,
+    i % 2 ? 'clipboard-read' : 'deprecated-sync-clipboard-read', [], ask));
+  await Promise.resolve();
+  assert.equal(prompts, 1);
+  finish(false);
+  assert.deepEqual(await Promise.all(requests), Array(20).fill(false));
+  for (let i = 0; i < 20; i++) assert.equal(await permissions.request(connection, input.url, 'clipboard-read', [], ask), false);
+  assert.equal(prompts, 1);
+  assert.equal(permissions.allows(connection, input.url, 'deprecated-sync-clipboard-read'), false);
+  assert.equal(await permissions.request(connection, input.url, 'clipboard-sanitized-write', [], async () => true), true);
+  assert.equal(permissions.allows(connection, input.url, 'clipboard-read'), false);
+  permissions.clear();
+  assert.equal(await permissions.request(connection, input.url, 'deprecated-sync-clipboard-read', [], async () => true), true);
+  assert.equal(permissions.allows(connection, input.url, 'clipboard-read'), true);
+  assert.equal(permissions.allows(connection, input.url, 'clipboard-sanitized-write'), false);
+});
+
+test('断开立即完成所有待决请求为拒绝，取消弹窗；迟到允许不污染下个会话', async () => {
+  const permissions = new Permissions();
+  const connection = { ...parseConnection(input), id: 'pending' };
+  let finish!: (allowed: boolean) => void;
+  let aborted = false;
+  let secondPrompts = 0;
+  const pending = permissions.request(connection, input.url, 'clipboard-read', [], signal => {
+    signal.addEventListener('abort', () => { aborted = true; });
+    return new Promise<boolean>(resolve => { finish = resolve; });
+  });
+  const queued = permissions.request(connection, input.url, 'media', ['audio'], async () => { secondPrompts++; return true; });
+  await Promise.resolve();
+  permissions.clear();
+  assert.deepEqual(await Promise.all([pending, queued]), [false, false]);
+  assert.equal(aborted, true);
+  finish(true);
+  await Promise.resolve();
+  assert.equal(secondPrompts, 0);
+  assert.equal(permissions.allows(connection, input.url, 'clipboard-read'), false);
+  assert.equal(await permissions.request(connection, input.url, 'clipboard-read', [], async () => false), false);
+});
+
+test('请求来源、连接和媒体类型隔离，异常弹窗按拒绝复用', async () => {
+  const permissions = new Permissions();
+  const connection = { ...parseConnection(input), id: 'isolated' };
+  assert.equal(await permissions.request(connection, 'https://foreign.test', 'clipboard-read', [], async () => { throw Error('must not ask'); }), false);
+  assert.equal(await permissions.request(connection, input.url, 'media', ['audio'], async () => true), true);
+  assert.equal(permissions.allows(connection, input.url, 'media', 'video'), false);
+  assert.equal(permissions.allows(connection, input.url, 'media', 'unknown'), false);
+  assert.equal(permissions.allows({ ...connection, id: 'other' }, input.url, 'media', 'audio'), false);
+  assert.equal(await permissions.request(connection, input.url, 'clipboard-read', [], async () => { throw Error('cancelled'); }), false);
+  assert.equal(await permissions.request(connection, input.url, 'clipboard-read', [], async () => { throw Error('must not ask again'); }), false);
+});
+
 test('侧栏和工具栏分别收起后，远端获得全部释放的真实视图空间', () => {
   assert.deepEqual(desktopBounds(1280, 800, { sidebar: true, toolbar: true }), { x: 232, y: 52, width: 1048, height: 748 });
   assert.deepEqual(desktopBounds(1280, 800, { sidebar: false, toolbar: true }), { x: 0, y: 52, width: 1280, height: 748 });
