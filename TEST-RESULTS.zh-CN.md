@@ -16,6 +16,8 @@
 | DMG 内应用与被测应用 | `app.asar` 的 SHA-256 一致 |
 | 生产依赖公告检查 | `npm audit --omit=dev` 为 0；不等同于完整运行时安全审计 |
 
+交付的 DMG 经系统 `hdiutil convert -format ULMO` 压缩至约 92 MB，便于平台附件传输；转换后再次通过校验、只读挂载、包内签名和 `app.asar` 哈希检查，应用内容保持一致。DMG 内包含完整 `.app`。构建还生成应用 ZIP，交付以 DMG 为主。
+
 被测与 DMG 内的 `app.asar` SHA-256：
 
 ```text
