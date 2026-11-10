@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { MockDesktop, certificate } from './fixtures';
 
-test.describe.serial('macOS 客户端真实 Electron 行为', () => {
+test.describe.serial('客户端真实 Electron 行为', () => {
   let application: ElectronApplication;
   let ui: Page;
   let first: MockDesktop;

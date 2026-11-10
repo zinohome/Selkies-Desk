@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { connectionSchema, connectionID, type Connection } from './model';
 import type { Layout } from './layout';
+import type { PlatformInfo } from './platform';
 
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state') }).strict(),
@@ -47,5 +48,7 @@ export type AppState = {
   layout: Layout;
   preferredLayout: Layout;
   controlsExpanded: boolean;
+  platform: Pick<PlatformInfo, 'os' | 'name' | 'labels' | 'storageNote'>;
+  version: string;
 };
 export type Result = { ok: boolean; error?: string; state?: AppState; id?: string; text?: string; count?: number; message?: string };

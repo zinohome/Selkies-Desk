@@ -7,6 +7,7 @@ import { parseConnection, parseImport, Store, matchesOrigin, matchesNetworkOrigi
 import { Vault } from '../src/vault';
 import { Permissions } from '../src/permissions';
 import { desktopBounds } from '../src/layout';
+import { platformInfo, trustedStorage } from '../src/platform';
 
 const input = { name: '工作台', url: 'https://example.test:8443', group: '开发', notes: '', username: 'alice' };
 
@@ -197,5 +198,44 @@ test('布局选择在重启后恢复，配置导出不包含本机布局偏好',
     store.setLayout({ sidebar: false, toolbar: false });
     assert.deepEqual(new Store(directory).layout, { sidebar: false, toolbar: false });
     assert.equal(store.export().includes('layout'), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('各系统的管理快捷键带 Alt 修饰且互不重复，Windows 和 Linux 避开 Ubuntu 的终端快捷键', () => {
+  for (const platform of ['darwin', 'win32', 'linux']) {
+    const info = platformInfo(platform);
+    const accelerators = Object.values(info.accelerators);
+    assert.equal(new Set(accelerators).size, accelerators.length);
+    for (const accelerator of accelerators) assert.match(accelerator, platform === 'darwin' ? /^Command\+Alt\+\w+$/ : /^Control\+Alt\+\w+$/);
+    assert.equal(accelerators.includes('Control+Alt+T'), false);
+    assert.equal(accelerators.includes('Control+Alt+Delete'), false);
+  }
+  assert.equal(platformInfo('darwin').labels.toolbar, '⌘⌥T');
+  assert.equal(platformInfo('win32').labels.toolbar, 'Ctrl+Alt+H');
+  assert.equal(platformInfo('linux').labels.fullscreen, 'F11');
+  assert.match(platformInfo('win32').storageNote, /DPAPI/);
+  assert.doesNotMatch(platformInfo('linux').storageNote, /Keychain|DPAPI/);
+});
+
+test('Linux 没有系统密钥环时不把密码写入磁盘，其他系统沿用系统加密', async () => {
+  assert.equal(trustedStorage('linux', true, () => 'basic_text'), false);
+  assert.equal(trustedStorage('linux', true, () => 'unknown'), false);
+  assert.equal(trustedStorage('linux', true, () => 'gnome_libsecret'), true);
+  assert.equal(trustedStorage('linux', true, () => 'kwallet6'), true);
+  assert.equal(trustedStorage('linux', false, () => 'gnome_libsecret'), false);
+  assert.equal(trustedStorage('darwin', true, () => { throw Error('Linux only'); }), true);
+  assert.equal(trustedStorage('win32', true, () => { throw Error('Linux only'); }), true);
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-linux-vault-'));
+  try {
+    const vault = new Vault(directory, {
+      isAsyncEncryptionAvailable: async () => trustedStorage('linux', true, () => 'basic_text'),
+      encryptStringAsync: async () => { throw Error('must not encrypt with a hard-coded key'); },
+      decryptStringAsync: async () => { throw Error('unused'); }
+    });
+    const connection = { ...parseConnection(input), id: 'linux' };
+    assert.equal(await vault.set(connection, 'fixture-pass', true), false);
+    assert.equal(vault.hasSaved('linux'), false);
+    assert.equal(readFileSync(join(directory, 'credentials.enc.json'), 'utf8').includes('fixture-pass'), false);
+    assert.equal((await vault.get(connection))?.password, 'fixture-pass');
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

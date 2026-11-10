@@ -17,6 +17,11 @@ function render(state: AppState) {
   control('sidebar').textContent = state.preferredLayout.sidebar ? '隐藏侧栏' : '显示侧栏';
   control('toolbar').textContent = state.preferredLayout.toolbar ? '隐藏工具栏' : '显示工具栏';
   control('fullscreen').textContent = state.fullscreen ? '退出全屏' : '进入全屏';
+  const keys = state.platform.labels;
+  control('handle').title = `展开会话操作 · ${keys.focus} 常规模式`;
+  control('sidebar').title = keys.sidebar;
+  control('toolbar').title = keys.toolbar;
+  control('fullscreen').title = keys.fullscreen;
 }
 control('handle').onclick = expand;
 control('handle').onmouseenter = expand;

@@ -1,13 +1,40 @@
-# Selkies Desk 0.2.2
+# Selkies Desk 0.3.0
 
-macOS 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
+macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为 **Apple Silicon / arm64 本机测试版**，没有 Apple Developer ID 签名或公证。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。本次安装包仅留存在 Mac 开发环境，等待用户要求后再提供；未上传 Multica、发布 GitHub Release 或商店。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。本次安装包仅留存在 Mac 开发环境，等待用户要求后再提供；未上传 Multica、发布 GitHub Release 或商店。
 
-## 安装与首次连接
+## 0.3.0 多平台安装包
 
-1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.2.2.txt` 核对文件。
-2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.2.2-arm64.zip` 使用其中的应用。
+同一套源码现在生成四种安装包，均在 Apple Silicon Mac 上构建：
+
+| 系统 | 文件 | 安装方式 | 状态 |
+| --- | --- | --- | --- |
+| macOS Apple Silicon | `Selkies-Desk-0.3.0-mac-arm64.dmg` | 拖入“应用程序” | 本机自动化测试通过 |
+| macOS Intel (x64) | `Selkies-Desk-0.3.0-mac-x64.dmg` | 拖入“应用程序” | 已构建，**未运行** |
+| Windows x64 | `Selkies-Desk-0.3.0-windows-x64-setup.exe` | 安装向导，可选安装目录，默认仅当前用户 | 已构建，**未运行** |
+| Ubuntu amd64 | `selkies-desk_0.3.0_amd64.deb` | `sudo apt install ./selkies-desk_0.3.0_amd64.deb` | 已构建，**未运行** |
+
+Intel Mac、Windows 和 Ubuntu 的安装包只做了文件结构检查（架构、签名一致性、deb 控制信息和依赖）。开发机没有 Rosetta、Windows 或 Linux 环境，安装、启动、视频解码、输入法、剪贴板和密码保存都需要在对应系统实测。Windows 安装包没有代码签名，SmartScreen 会提示未知发布者。
+
+各系统的差异：
+
+| 项目 | macOS | Windows / Ubuntu |
+| --- | --- | --- |
+| 新增连接 / 搜索 / 重连 | `⌘⌥N` / `⌘⌥L` / `⌘⌥R` | `Ctrl+Alt+N` / `Ctrl+Alt+L` / `Ctrl+Alt+R` |
+| 侧栏 / 工具栏 / 专注模式 | `⌘⌥B` / `⌘⌥T` / `⌘⌥Enter` | `Ctrl+Alt+B` / `Ctrl+Alt+H` / `Ctrl+Alt+Enter` |
+| 全屏 | `⌃⌘F` | `F11` |
+| 菜单栏 | 系统顶部菜单栏 | 隐藏，不占用窗口空间；功能由工具栏、侧栏和快捷键提供 |
+| 记住密码 | Keychain 保护密钥 | Windows 用 DPAPI；Ubuntu 用 GNOME Keyring 或 KWallet |
+
+Ubuntu 的 `Ctrl+Alt+T` 是系统终端快捷键，所以 Windows 和 Ubuntu 的工具栏切换改用 `Ctrl+Alt+H`。Ubuntu 上没有系统密钥环时，Electron 只能用固定密钥加密，本应用此时不提供“记住密码”，密码仅保留到本次会话结束。导出的连接配置可以跨系统导入；密码、证书信任和网页会话按设备独立保存。
+
+下文的快捷键以 macOS 为例。
+
+## 安装与首次连接（macOS）
+
+1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.3.0.txt` 核对文件。
+2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.3.0-mac-arm64.zip` 使用其中的应用。
 3. 下载的未公证应用可能被 Gatekeeper 阻止。确认文件来源、校验和与风险后，可使用 macOS 系统提供的单个应用“仍要打开”流程；无需也不要全局关闭 Gatekeeper。若系统报告文件损坏，先重新下载核对校验和，或自行从源码构建。
 4. 点击“新增连接”，填写名称和服务器地址，例如 `https://服务器地址:8443`。不带协议时默认 HTTPS。8443 与 8444 可以分别保存为两个条目。
 5. 点击左侧条目连接。首次自签名证书会显示完整来源（含端口）、错误和 SHA-256 指纹；通过可信渠道核对后再确认。密码只在出现“服务器认证”时输入。
@@ -70,20 +97,26 @@ macOS 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自�
 
 ## 从源码构建
 
-在 Apple Silicon Mac 上解压源码 ZIP，进入 `selkies-desk` 目录，或克隆上述仓库并进入仓库根目录：
+在 Mac 上解压源码 ZIP，进入 `selkies-desk` 目录，或克隆上述仓库并进入仓库根目录：
 
 ```sh
 npm ci
 npm test
 npm start
-npm run package
+npm run package          # macOS arm64 DMG + ZIP
+npm run package:mac-x64  # macOS Intel DMG + ZIP
+npm run package:win      # Windows x64 安装程序
+npm run package:linux    # Ubuntu amd64 deb
+npm run package:all      # 以上全部
 ```
+
+四种安装包都可以在 Apple Silicon Mac 上直接生成，不需要 Wine、Docker 或 Rosetta：构建配置选用了带 arm64 版 makensis 的 NSIS 工具集（`toolsets.nsis`），deb 使用 electron-builder 自带的 arm64 版 fpm。首次构建会下载对应系统的 Electron 运行时和这些工具。
 
 依赖已由 `package-lock.json` 锁定。开发机使用 Node 26.9.0、npm 11.19.1、Xcode Command Line Tools；Electron 固定 45.2.3。Electron 首次使用可能需要下载运行时。开发依赖的安装脚本若被 npm 策略阻止，请审查对应包后按本机策略批准；不要在公共环境全局放开所有安装脚本。
 
-`npm run package` 只构建 arm64 DMG 和 ZIP，使用 ad-hoc 签名且 `--publish never`。不会创建远程仓库、发布或调用 Apple 公证服务。安装包的系统版本下限设为 Electron 自带的 macOS 13；**实际只在本机 macOS 27.2 / arm64 验证，未声称 macOS 13–26 或 Intel 实测通过**。
+macOS 包使用 ad-hoc 签名，所有打包命令都带 `--publish never`。不会创建远程仓库、发布或调用 Apple 公证服务。安装包的系统版本下限设为 Electron 自带的 macOS 13；**实际只在本机 macOS 27.2 / arm64 验证，未声称 macOS 13–26、Intel Mac、Windows 或 Ubuntu 实测通过**。
 
-重建图标可运行 `node scripts/make-icon.mjs`（需要系统 Swift、sips 和 iconutil）；图标产物已包含在源码中，正常构建无需运行此命令。
+重建图标可运行 `node scripts/make-icon.mjs`（需要 macOS 的 Swift、sips 和 iconutil，同时生成 Linux 用的多尺寸 PNG）；图标产物已包含在源码中，正常构建无需运行此命令。
 
 完整 Electron 测试仅使用两个本地 HTTP 模拟端及一个可轮换证书的 HTTPS 模拟端，不连接用户服务器、不使用真实密码。测试期间临时备份并恢复系统剪贴板，测试配置和临时证书在结束时清理。原生文件确认与部分权限选择在自动化中替换为确定的选择；权限取消回归另外使用真实 macOS 原生弹窗；下载内容和配置落盘由实际 Electron API 完成。
 

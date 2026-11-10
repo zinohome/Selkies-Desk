@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, safeStorage, session, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, safeStorage, session, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,8 +8,11 @@ import { Vault } from './vault';
 import { Remote } from './remote';
 import { actionSchema, type Action, type AppState, type Result } from './protocol';
 import { defaultLayout, desktopBounds } from './layout';
+import { platformInfo, trustedStorage } from './platform';
 
 app.setName('Selkies Desk');
+const platform = platformInfo(process.platform);
+if (platform.os === 'windows') app.setAppUserModelId('local.selkies.desk');
 const explicitProfile = app.commandLine.getSwitchValue('user-data-dir');
 if (explicitProfile && isAbsolute(explicitProfile)) app.setPath('userData', explicitProfile);
 const locked = app.requestSingleInstanceLock();
@@ -34,7 +37,9 @@ function state(): AppState {
     })),
     status: remote.status, prompt: remote.prompt,
     fullscreen: window.isFullScreen(), encryptionAvailable,
-    layout: remote.visible ? store.layout : defaultLayout, preferredLayout: store.layout, controlsExpanded
+    layout: remote.visible ? store.layout : defaultLayout, preferredLayout: store.layout, controlsExpanded,
+    platform: { os: platform.os, name: platform.name, labels: platform.labels, storageNote: platform.storageNote },
+    version: app.getVersion()
   };
 }
 function publish() {
@@ -164,13 +169,20 @@ function menu() {
     window.webContents.send('desk:command', command);
     window.webContents.focus();
   };
+  const keys = platform.accelerators;
+  const mac = platform.os === 'mac';
+  const manageItems: MenuItemConstructorOptions[] = [
+    { label: '新增连接…', accelerator: keys.new, click: () => manage('new') },
+    { label: '搜索连接', accelerator: keys.search, click: () => manage('search') }
+  ];
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'Selkies Desk', submenu: [
-      { role: 'about', label: '关于 Selkies Desk' }, { type: 'separator' },
-      { label: '新增连接…', accelerator: 'Command+Alt+N', click: () => manage('new') },
-      { label: '搜索连接', accelerator: 'Command+Alt+L', click: () => manage('search') },
+    mac ? { label: 'Selkies Desk', submenu: [
+      { role: 'about', label: '关于 Selkies Desk' }, { type: 'separator' }, ...manageItems,
       { type: 'separator' }, { role: 'hide', label: '隐藏 Selkies Desk' },
       { role: 'hideOthers', label: '隐藏其他' }, { role: 'unhide', label: '显示全部' },
+      { type: 'separator' }, { role: 'quit', label: '退出 Selkies Desk' }
+    ] } : { label: '文件', submenu: [
+      ...manageItems, { type: 'separator' }, { role: 'about', label: '关于 Selkies Desk' },
       { type: 'separator' }, { role: 'quit', label: '退出 Selkies Desk' }
     ] },
     { label: '编辑', submenu: [
@@ -179,29 +191,36 @@ function menu() {
       { role: 'selectAll', label: '全选' }
     ] },
     { label: '连接', submenu: [
-      { label: '重连当前服务器', accelerator: 'Command+Alt+R', click: () => { void perform({ type: 'reconnect' }); } },
+      { label: '重连当前服务器', accelerator: keys.reconnect, click: () => { void perform({ type: 'reconnect' }); } },
       { label: '断开当前服务器', click: () => { void perform({ type: 'disconnect' }); } },
       { type: 'separator' }, { label: '导入配置…', click: () => { void perform({ type: 'import' }).catch(() => manage('importError')); } },
       { label: '导出配置…', click: () => { void perform({ type: 'export' }).catch(() => manage('exportError')); } }
     ] },
     { label: '显示', submenu: [
-      { label: '显示或隐藏侧栏', accelerator: 'Command+Alt+B', click: () => { void perform({ type: 'layout', target: 'sidebar' }); } },
-      { label: '显示或隐藏工具栏', accelerator: 'Command+Alt+T', click: () => { void perform({ type: 'layout', target: 'toolbar' }); } },
-      { label: '切换专注模式', accelerator: 'Command+Alt+Enter', click: () => { void perform({ type: 'layout', target: 'focus' }); } },
+      { label: '显示或隐藏侧栏', accelerator: keys.sidebar, click: () => { void perform({ type: 'layout', target: 'sidebar' }); } },
+      { label: '显示或隐藏工具栏', accelerator: keys.toolbar, click: () => { void perform({ type: 'layout', target: 'toolbar' }); } },
+      { label: '切换专注模式', accelerator: keys.focus, click: () => { void perform({ type: 'layout', target: 'focus' }); } },
       { label: '常规模式', click: () => { void perform({ type: 'layout', target: 'restore' }); } }
     ] },
-    { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, { role: 'zoom', label: '缩放' }, { role: 'togglefullscreen', label: '切换全屏' }] }
+    { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, ...(mac ? [{ role: 'zoom', label: '缩放' } as MenuItemConstructorOptions] : []), { role: 'togglefullscreen', label: '切换全屏' }] }
   ]));
 }
 async function start() {
   store = new Store(app.getPath('userData'));
-  vault = new Vault(app.getPath('userData'), safeStorage);
+  vault = new Vault(app.getPath('userData'), {
+    isAsyncEncryptionAvailable: async () => trustedStorage(process.platform, await safeStorage.isAsyncEncryptionAvailable(), () => safeStorage.getSelectedStorageBackend()),
+    encryptStringAsync: text => safeStorage.encryptStringAsync(text),
+    decryptStringAsync: buffer => safeStorage.decryptStringAsync(buffer)
+  });
   encryptionAvailable = await vault.available();
   window = new BrowserWindow({
     title: 'Selkies Desk', width: store.window?.width || 1280, height: store.window?.height || 820,
     minWidth: 960, minHeight: 680, backgroundColor: '#f4f6f8', show: false,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }
   });
+  // Windows and Linux draw the menu bar inside the window. Keep it hidden so the
+  // remote desktop gets the space; accelerators and toolbar buttons stay available.
+  if (platform.os !== 'mac') window.setMenuBarVisibility(false);
   remote = new Remote(window, store, vault, publish);
   controls = new WebContentsView({
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }

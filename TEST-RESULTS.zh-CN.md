@@ -1,6 +1,35 @@
 # Selkies Desk 本机测试结果
 
-## 0.2.2（当前版本）
+## 0.3.0（当前版本）
+
+测试日期 2026-11-10，构建和测试机为 macOS 27.2 / Apple Silicon arm64，Electron 45.2.3。本次增加 Intel Mac、Windows x64、Ubuntu amd64 安装包，并按系统适配快捷键、菜单、字体和密码存储说明。
+
+已运行：
+
+- 15 项单元测试通过，新增两项：各系统快捷键带 Alt 修饰、互不重复且避开 Ubuntu 的 `Ctrl+Alt+T`；Linux 没有系统密钥环时不把密码写入磁盘。
+- 源码 Electron E2E 19 项通过；打包后的 arm64 应用（`release/mac-arm64`）E2E 19 项通过。
+- `npm run package:all` 在本机一次生成四种安装包，无错误。两个 DMG 的 `hdiutil verify` 通过，两个 macOS 应用的 `codesign --verify --deep --strict` 通过。
+- 文件结构检查：Intel Mac 应用主程序为 `x86_64`；Windows 主程序为 PE32+ x86-64，安装程序为 NSIS；deb 为 `amd64`，主程序为 x86-64 ELF，包含桌面入口、16–512 像素图标和 `libsecret-1-0` 等依赖声明。
+
+未运行：
+
+- **Intel Mac、Windows、Ubuntu 的安装包没有在对应系统安装或启动过。** 开发机没有 Rosetta，也没有 Windows 或 Linux 环境。
+- 这三个系统上的菜单栏隐藏后快捷键是否生效、字体和图标显示、DPAPI 与系统密钥环、Wayland/X11 输入法、硬件解码、多显示器 DPI 均未验证。
+- 真实 Selkies 服务本次没有登录或复测。
+
+0.3.0 安装包 SHA256：
+
+```text
+e0e937c18427fe593a3f7fbf2b9670f64e2585548332cfb9e3f844f95525db56  Selkies-Desk-0.3.0-mac-arm64.dmg
+61e9b959b9b40f2c99838ebc78200a8603d7775e8de4cc3c644726faa287df3f  Selkies-Desk-0.3.0-mac-arm64.zip
+c14ac6748723319f48156f0afcc731e32a48e6647a6a32135fef4e759b507e80  Selkies-Desk-0.3.0-mac-x64.dmg
+0212202c16f983631c61adbf7f65fc6385f1c745544d8b2388039edf803a95c2  Selkies-Desk-0.3.0-mac-x64.zip
+3d570ac3a0ccc49ac4c7ccfaab80c4f0f294fc91fe42ad5578aaae0c20bcfadc  Selkies-Desk-0.3.0-windows-x64-setup.exe
+b00c79173848483fd30e1354c313680c0ccad0bb3f9bf4ac691622a68e50cf82  selkies-desk_0.3.0_amd64.deb
+```
+
+## 0.2.2
+
 
 测试日期 2026-11-10，macOS 27.2 / Apple Silicon arm64，Electron 45.2.3。本次是工具栏外观和提示文案调整：主工具栏全部使用 SVG 图标，包含连接、断开、重连、专注模式、全屏、设置和两栏切换；每个按钮有中文 title 和无障碍名称。专注模式提示精确为“专注模式”。专注顶部操作条保留文字，“恢复布局”改为“常规模式”，原生显示菜单也使用“常规模式”。
 

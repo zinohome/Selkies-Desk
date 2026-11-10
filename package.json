@@ -1,8 +1,8 @@
 {
   "name": "selkies-desk",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
-  "description": "macOS Selkies 多服务器桌面客户端",
+  "description": "Selkies 多服务器桌面客户端",
   "author": "Selkies Desk",
   "license": "UNLICENSED",
   "main": "dist/main.cjs",
@@ -12,7 +12,11 @@
     "test:unit": "node --import tsx --test tests/model.test.ts",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run build && npm run test:e2e",
-    "package": "npm run build && electron-builder --mac dmg zip --arm64 --publish never"
+    "package": "npm run build && electron-builder --mac dmg zip --arm64 --publish never",
+    "package:mac-x64": "npm run build && electron-builder --mac dmg zip --x64 --publish never",
+    "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:linux": "npm run build && electron-builder --linux deb --x64 --publish never",
+    "package:all": "npm run build && electron-builder --mac dmg zip --arm64 --x64 --publish never && electron-builder --win nsis --x64 --publish never && electron-builder --linux deb --x64 --publish never"
   },
   "build": {
     "appId": "local.selkies.desk",
@@ -40,10 +44,41 @@
         "NSCameraUsageDescription": "仅在您同意后，将摄像头用于当前 Selkies 连接。"
       }
     },
-    "artifactName": "Selkies-Desk-${version}-${arch}.${ext}",
+    "artifactName": "Selkies-Desk-${version}-${os}-${arch}.${ext}",
     "dmg": {
-      "title": "Selkies Desk 0.2.2"
-    }
+      "title": "${productName} ${version}"
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Selkies Desk",
+      "artifactName": "Selkies-Desk-${version}-windows-${arch}-setup.${ext}"
+    },
+    "linux": {
+      "icon": "assets/icons",
+      "target": [
+        "deb"
+      ],
+      "category": "Network",
+      "executableName": "selkies-desk",
+      "synopsis": "Selkies 多服务器桌面客户端",
+      "maintainer": "Selkies Desk <selkies-desk@users.noreply.github.com>",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "artifactName": "selkies-desk_${version}_${arch}.${ext}"
+    },
+    "toolsets": {
+      "nsis": "1.2.1"
+    },
+    "publish": null
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",
@@ -59,5 +94,7 @@
   },
   "dependencies": {
     "zod": "4.6.7"
-  }
+  },
+  "homepage": "https://github.com/zinohome/Selkies-Desk",
+  "desktopName": "selkies-desk.desktop"
 }

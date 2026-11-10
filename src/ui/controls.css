@@ -1,4 +1,4 @@
-:root{font:12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#e9edf4;background:transparent;color-scheme:dark}
+:root{font:12px -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC",sans-serif;color:#e9edf4;background:transparent;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;overflow:hidden}button{font:inherit;cursor:pointer;color:inherit;border:0}button:focus-visible{outline:2px solid #7ab5ff;outline-offset:-3px}
 #handle{display:grid;place-items:center;width:64px;height:22px;background:#252b36eb;border:1px solid #ffffff38;border-top:0;border-radius:0 0 9px 9px}
 #handle span{width:24px;height:3px;background:#c4ccda;border-radius:2px}

@@ -112,6 +112,6 @@ export class MockDesktop {
 export function certificate(directory: string, name: string) {
   const key = join(directory, `${name}.key`);
   const cert = join(directory, `${name}.crt`);
-  execFileSync('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '2', '-subj', `/CN=${name}`, '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
+  execFileSync(process.platform === 'darwin' ? '/usr/bin/openssl' : 'openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '2', '-subj', `/CN=${name}`, '-addext', 'subjectAltName=IP:127.0.0.1'], { stdio: 'ignore' });
   return { key: readFileSync(key), cert: readFileSync(cert) };
 }

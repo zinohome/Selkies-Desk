@@ -100,15 +100,20 @@ function render(state: AppState) {
   element('address').textContent = connection?.url || '你的远程工作空间';
   element('status').textContent = phases[phase];
   element('status-dot').className = phase;
+  const keys = state.platform.labels;
   const sidebarLabel = state.layout.sidebar ? '隐藏侧栏' : '显示侧栏';
   button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
-  button('toggle-sidebar').title = `${sidebarLabel} · ⌘⌥B`;
+  button('toggle-sidebar').title = `${sidebarLabel} · ${keys.sidebar}`;
   button('settings').disabled = !connection;
   button('connect').disabled = !connection || phase === 'loading' || phase === 'loaded';
   button('disconnect').disabled = !active || !['loading', 'loaded', 'failed'].includes(phase);
   button('reconnect').disabled = !connection;
   button('fullscreen').setAttribute('aria-label', state.fullscreen ? '退出全屏' : '进入全屏');
-  button('fullscreen').title = `${state.fullscreen ? '退出' : '进入'}全屏 · ⌃⌘F`;
+  button('fullscreen').title = `${state.fullscreen ? '退出' : '进入'}全屏 · ${keys.fullscreen}`;
+  button('reconnect').title = `重连 · ${keys.reconnect}`;
+  button('toggle-toolbar').title = `隐藏工具栏 · ${keys.toolbar}`;
+  element('focus-hint').textContent = `${keys.focus} 专注模式`;
+  element('build').textContent = `${state.version} · ${state.platform.name}`;
   renderToolbarIcons(state.fullscreen, state.layout.sidebar);
   element('empty').hidden = active && ['loading', 'loaded'].includes(phase);
   element('connection-state').hidden = phase !== 'failed' && phase !== 'loading';
@@ -183,7 +188,7 @@ function prompts() {
     input('remember').checked = false;
     input('remember').disabled = !current.encryptionAvailable;
     element('encryption-note').textContent = current.encryptionAvailable
-      ? '使用由 macOS Keychain 保护密钥的加密存储；不会把明文密码写入配置。'
+      ? current.platform.storageNote
       : '加密存储不可用。密码仅用于本次会话，不会明文落盘。';
     if (prompt.origin.startsWith('http:')) element('encryption-note').textContent += ' 当前为 HTTP，认证信息在网络中不加密。';
     authDialog.showModal();
