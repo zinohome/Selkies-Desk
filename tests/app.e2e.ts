@@ -452,7 +452,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       const ballView = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
         .find(child => 'webContents' in child && (child as any).webContents.getURL().endsWith('/controls.html'))!.getBounds());
       const inset = (await state()).controlsInset;
-      if (process.platform === 'darwin') expect([34, 58]).toContain(inset);
+      if (process.platform === 'darwin') expect([0, 24]).toContain(inset);
       const resting = await ballView();
       expect([resting.width, resting.height]).toEqual([44, 44]);
       expect(resting.x + resting.width).toBe(now.size[0] - 10);
@@ -928,10 +928,39 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       // Dropping it on the other half of the screen parks it on that edge, and the place is remembered.
       const drag = (dx: number, dy: number, done: boolean) => controlPage.evaluate(value => (window as any).desk.invoke(value), { type: 'ballDrag', dx, dy, done });
       await drag(-400, 60, false);
-      await drag(-900, 120, true);
+      await drag(-3000, 120, true);
       await expect.poll(async () => (await state()).ballSide).toBe('left');
       expect(JSON.parse(readFileSync(join(directory, 'profile', 'connections.json'), 'utf8')).ball.side).toBe('left');
       expect((await remoteBounds()).visible).toBe(true);
+      // The top and bottom edges behave the same way: it parks where it is dropped, the arc opens
+      // towards the desktop, and neither the ball nor the arc is pushed out of place.
+      const view = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
+        .find(child => 'webContents' in child && (child as any).webContents.getURL().endsWith('/controls.html'))!.getBounds());
+      for (const [side, dx, dy] of [['top', 700, -2000], ['bottom', 0, 3000]] as const) {
+        await drag(dx, dy, true);
+        await expect.poll(async () => (await state()).ballSide).toBe(side);
+        const resting = await view();
+        const screenSize = (await remoteBounds()).size;
+        if (side === 'top') expect(resting.y).toBe((await state()).controlsInset + 10);
+        else expect(resting.y + resting.height).toBe(screenSize[1] - 10);
+        await openBall();
+        const ballBox = (await controlPage.getByRole('button', { name: '收起会话操作条' }).boundingBox())!;
+        const opened = await view();
+        expect([opened.x + ballBox.x + ballBox.width / 2, opened.y + ballBox.y + ballBox.height / 2]).toEqual([resting.x + 22, resting.y + 22]);
+        expect(opened.y).toBeGreaterThanOrEqual((await state()).controlsInset);
+        expect(opened.y + opened.height).toBeLessThanOrEqual(screenSize[1]);
+        const reconnect = controlPage.getByRole('button', { name: '重连', exact: true });
+        await settled(reconnect);
+        const box = (await reconnect.boundingBox())!;
+        // Buttons are on the desktop side of the ball: below it at the top edge, above it at the bottom.
+        if (side === 'top') expect(box.y).toBeGreaterThan(ballBox.y + ballBox.height);
+        else expect(box.y + box.height).toBeLessThan(ballBox.y);
+        await controlPage.screenshot({ path: join(evidence, `13-ball-arc-${side}.png`) });
+        await mouse('controls', 'mouseLeave', 400, 400);
+        await controlPage.evaluate(() => (window as any).desk.invoke({ type: 'controls', expanded: false }));
+      }
+      await drag(-3000, -300, true);
+      await expect.poll(async () => (await state()).ballSide).toBe('left');
       await openBall();
       await settled(controlPage.getByRole('button', { name: '重连', exact: true }));
       await controlPage.screenshot({ path: join(evidence, '12-ball-arc-left.png') });

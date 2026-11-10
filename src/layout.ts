@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ballSize, fanReach, fanSize } from './fan';
+import { ballSize, fanCentre, fanReach, fanSize, type Side } from './fan';
 export { ballSize };
 
 export const layoutSchema = z.object({ sidebar: z.boolean(), toolbar: z.boolean() }).strict();
@@ -23,17 +23,16 @@ export function desktopBounds(width: number, height: number, layout: Layout, str
 }
 
 /**
- * In macOS full screen, moving the pointer to the top edge slides system chrome over the top of
- * the window, and nothing underneath can be clicked while the pointer is on it.
- * - The window's own title strip always slides in: measured at 31 px, kept clear with a margin.
- * - The menu bar slides in above it. On a display with a camera housing the full-screen window
- *   starts below that band, so the menu bar stays outside the window and costs nothing.
+ * In macOS full screen, system chrome slides over the top of the window only while the pointer is
+ * on the very top edge of the screen. The assistive ball is used without going there, so it can
+ * sit right at the top of the window. The one case worth avoiding is a display without a camera
+ * housing, where the full-screen window starts at the screen edge itself: there the ball stays
+ * one menu-bar height down, so reaching for it does not bring the menu bar down on top of it.
  */
-export const titleStripReveal = 34;
 export const menuBarReveal = 24;
-/** Pixels the full-screen controls must hang below the top of the window to stay clickable. */
+/** Pixels at the top of a full-screen window that the floating controls keep out of. */
 export function fullscreenInset(windowTop: number, displayTop: number) {
-  return titleStripReveal + (windowTop > displayTop ? 0 : menuBarReveal);
+  return windowTop > displayTop ? 0 : menuBarReveal;
 }
 /**
  * Full screen means the desktop alone: no sidebar and no toolbar, whatever the saved preference.
@@ -48,32 +47,40 @@ export function effectiveLayout(layout: Layout, fullscreen: boolean): Layout {
  * opens an arc of buttons around itself when clicked. Nothing depends on the top of the screen.
  */
 const ballMargin = 10;
-export const ballSchema = z.object({ side: z.enum(['left', 'right']), y: z.number().min(0).max(1) }).strict();
-/** `y` is the top of the ball as a fraction of the desktop height, so it survives resizing. */
-export type Ball = z.infer<typeof ballSchema>;
-export const defaultBall: Ball = { side: 'right', y: 0.3 };
+/**
+ * `at` is where the ball sits along its edge, as a fraction of that edge (down a side edge,
+ * across the top or bottom edge), so it survives resizing. Files written before the ball could
+ * rest on all four edges called it `y`.
+ */
+export const ballSchema = z.preprocess(value => {
+  const legacy = value as { side?: unknown; y?: unknown; at?: unknown } | null;
+  return legacy && typeof legacy === 'object' && legacy.y !== undefined && legacy.at === undefined ? { side: legacy.side, at: legacy.y } : value;
+}, z.object({ side: z.enum(['left', 'right', 'top', 'bottom']), at: z.number().min(0).max(1) }).strict());
+export type Ball = { side: Side; at: number };
+export const defaultBall: Ball = { side: 'right', at: 0.3 };
 type Rect = { x: number; y: number; width: number; height: number };
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /**
- * Where the controls sit inside the desktop. The resting ball keeps enough room above and below
- * for its arc, so opening never has to move it. `topInset` is the strip macOS covers at the top
- * of a full-screen window. Opened, the view grows around the ball; the ball's centre stays put.
+ * Where the controls sit inside the desktop. `topInset` is the strip macOS covers at the top of a
+ * full-screen window; the usable area starts below it. The resting ball keeps enough room along
+ * its edge for the arc, so opening never has to move it or cut the arc off. Opened, the view
+ * grows around the ball towards the inside of the desktop; the ball's centre stays put.
  */
 export function ballBounds(desktop: Rect, ball: Ball, expanded: boolean, topInset = 0): Rect {
+  const area = { x: desktop.x, y: desktop.y + topInset, width: desktop.width, height: Math.max(ballSize, desktop.height - topInset) };
   const room = fanReach - ballSize / 2;
-  const top = desktop.y + topInset + room;
-  const bottom = Math.max(top, desktop.y + desktop.height - ballSize - room);
+  const along = (start: number, length: number) =>
+    clamp(start + Math.round(ball.at * length), start + room, Math.max(start + room, start + length - ballSize - room));
   const rest = {
-    x: ball.side === 'left' ? desktop.x + ballMargin : desktop.x + desktop.width - ballSize - ballMargin,
-    y: clamp(desktop.y + Math.round(ball.y * desktop.height), top, bottom),
-    width: ballSize, height: ballSize
-  };
-  if (!expanded) return rest;
-  return {
-    x: ball.side === 'left' ? rest.x : rest.x + ballSize - fanSize.width,
-    y: rest.y - room, width: fanSize.width, height: fanSize.height
-  };
+    left: { x: area.x + ballMargin, y: along(area.y, area.height) },
+    right: { x: area.x + area.width - ballSize - ballMargin, y: along(area.y, area.height) },
+    top: { x: along(area.x, area.width), y: area.y + ballMargin },
+    bottom: { x: along(area.x, area.width), y: area.y + area.height - ballSize - ballMargin }
+  }[ball.side];
+  if (!expanded) return { ...rest, width: ballSize, height: ballSize };
+  const centre = fanCentre(ball.side);
+  return { x: rest.x + ballSize / 2 - centre.x, y: rest.y + ballSize / 2 - centre.y, ...fanSize(ball.side) };
 }
 /** While being dragged the ball follows the pointer freely, but never leaves the desktop. */
 export function draggedBall(desktop: Rect, start: Rect, dx: number, dy: number, topInset = 0): Rect {
@@ -83,11 +90,17 @@ export function draggedBall(desktop: Rect, start: Rect, dx: number, dy: number, 
     width: ballSize, height: ballSize
   };
 }
-/** On release the ball settles against whichever side edge is nearer and keeps its height. */
-export function snapBall(desktop: Rect, dropped: Rect): Ball {
-  const centre = dropped.x + dropped.width / 2;
-  return {
-    side: centre < desktop.x + desktop.width / 2 ? 'left' : 'right',
-    y: clamp((dropped.y - desktop.y) / Math.max(1, desktop.height), 0, 1)
+/** On release the ball settles against whichever of the four edges is nearest, where it was dropped along it. */
+export function snapBall(desktop: Rect, dropped: Rect, topInset = 0): Ball {
+  const area = { x: desktop.x, y: desktop.y + topInset, width: desktop.width, height: Math.max(ballSize, desktop.height - topInset) };
+  const cx = dropped.x + dropped.width / 2;
+  const cy = dropped.y + dropped.height / 2;
+  const distance: Record<Side, number> = {
+    left: cx - area.x, right: area.x + area.width - cx, top: cy - area.y, bottom: area.y + area.height - cy
   };
+  const side = (Object.keys(distance) as Side[]).reduce((nearest, candidate) => distance[candidate] < distance[nearest] ? candidate : nearest);
+  const at = side === 'left' || side === 'right'
+    ? (dropped.y - area.y) / Math.max(1, area.height)
+    : (dropped.x - area.x) / Math.max(1, area.width);
+  return { side, at: clamp(at, 0, 1) };
 }

@@ -201,7 +201,7 @@ async function perform(action: Action): Promise<Result> {
       layoutControls();
       if (action.done) {
         const [width, height] = window.getContentSize();
-        store.setBall(snapBall(desktopBounds(width, height, layout(), strip()), controls.getBounds()));
+        store.setBall(snapBall(desktopBounds(width, height, layout(), strip()), controls.getBounds(), controlsInset()));
         ballDrag = undefined;
         publish();
       }

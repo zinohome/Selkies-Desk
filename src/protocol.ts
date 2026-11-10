@@ -3,6 +3,7 @@ import { connectionSchema, connectionID, settingsPatchSchema, type Connection, t
 import type { Language } from './i18n';
 import { commands, type OS, type Shortcuts } from './platform';
 import type { Layout } from './layout';
+import type { Side } from './fan';
 
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state') }).strict(),
@@ -61,7 +62,7 @@ export type AppState = {
   /** Strip at the top of the desktop the floating controls keep out of (macOS full screen). */
   controlsInset: number;
   /** Which edge the assistive ball rests against; the opened row grows away from it. */
-  ballSide: 'left' | 'right';
+  ballSide: Side;
   platform: { os: OS; name: string; /** The app draws its own title bar (macOS). */ integratedTitleBar: boolean };
   version: string;
   language: Language;

@@ -11,34 +11,53 @@ export const fanItem = 30;
 export const fanBand = 19;
 /** Furthest drawn point from the centre of the ball. */
 export const fanReach = fanRadius + fanBand + 3;
-/** Size of the opened view: the half ring plus the ball's own half on the edge side. */
-export const fanSize = { width: ballSize / 2 + fanReach, height: 2 * fanReach };
 /** Angle between neighbouring buttons, wide enough that they never touch. */
 const stepDegrees = 41;
+export type Side = 'left' | 'right' | 'top' | 'bottom';
+const vertical = (side: Side) => side === 'left' || side === 'right';
+/** Unit vector pointing from the edge into the desktop. */
+const inward = (side: Side) => ({ left: [1, 0], right: [-1, 0], top: [0, 1], bottom: [0, -1] })[side];
 
-/** Centre of the ball inside the opened view. */
-export function fanCentre(side: 'left' | 'right') {
-  return { x: side === 'left' ? ballSize / 2 : fanSize.width - ballSize / 2, y: fanReach };
+/** Size of the opened view: the half ring on the inward side plus the ball's own half on the edge side. */
+export function fanSize(side: Side) {
+  const deep = ballSize / 2 + fanReach;
+  return vertical(side) ? { width: deep, height: 2 * fanReach } : { width: 2 * fanReach, height: deep };
 }
-/** Centres of `count` buttons, top to bottom, spread evenly around the inward direction. */
-export function fanPositions(count: number, side: 'left' | 'right') {
+/** Centre of the ball inside the opened view. */
+export function fanCentre(side: Side) {
+  const size = fanSize(side);
+  const half = ballSize / 2;
+  return {
+    left: { x: half, y: fanReach }, right: { x: size.width - half, y: fanReach },
+    top: { x: fanReach, y: half }, bottom: { x: fanReach, y: size.height - half }
+  }[side];
+}
+/**
+ * Centres of `count` buttons spread evenly around the inward direction, in reading order:
+ * top to bottom beside a side edge, left to right below the top edge or above the bottom edge.
+ */
+export function fanPositions(count: number, side: Side) {
   const centre = fanCentre(side);
-  const inward = side === 'left' ? 1 : -1;
+  const [ix, iy] = inward(side);
+  const [tx, ty] = vertical(side) ? [0, 1] : [1, 0];
   return Array.from({ length: count }, (_unused, index) => {
     const angle = (index - (count - 1) / 2) * stepDegrees * Math.PI / 180;
-    return { x: centre.x + inward * fanRadius * Math.cos(angle), y: centre.y + fanRadius * Math.sin(angle) };
+    const along = fanRadius * Math.sin(angle);
+    const out = fanRadius * Math.cos(angle);
+    return { x: centre.x + ix * out + tx * along, y: centre.y + iy * out + ty * along };
   });
 }
-
 /**
  * SVG path of the band behind `count` buttons: an arc centred on the ball that covers exactly the
  * buttons, to be stroked `2 * fanBand` wide with round caps so both ends are rounded.
  */
-export function fanArc(count: number, side: 'left' | 'right') {
+export function fanArc(count: number, side: Side) {
+  const centre = fanCentre(side);
   const points = fanPositions(count, side);
   const first = points[0];
   const last = points[points.length - 1];
   const round = (value: number) => Math.round(value * 100) / 100;
-  // Drawn top to bottom: clockwise when the ball is on the right edge, counter-clockwise on the left.
-  return `M ${round(first.x)} ${round(first.y)} A ${fanRadius} ${fanRadius} 0 0 ${side === 'left' ? 1 : 0} ${round(last.x)} ${round(last.y)}`;
+  // In screen coordinates a positive cross product means the short way round is clockwise.
+  const cross = (first.x - centre.x) * (last.y - centre.y) - (first.y - centre.y) * (last.x - centre.x);
+  return `M ${round(first.x)} ${round(first.y)} A ${fanRadius} ${fanRadius} 0 0 ${cross > 0 ? 1 : 0} ${round(last.x)} ${round(last.y)}`;
 }

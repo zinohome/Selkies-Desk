@@ -65,8 +65,8 @@ function render(state: AppState) {
   if (ring.dataset.path !== path) {
     ring.dataset.path = path;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', String(fanSize.width));
-    svg.setAttribute('height', String(fanSize.height));
+    svg.setAttribute('width', String(fanSize(state.ballSide).width));
+    svg.setAttribute('height', String(fanSize(state.ballSide).height));
     for (const [stroke, width] of [['#ffffff38', 2 * fanBand + 2], ['#1f2229', 2 * fanBand]] as const) {
       const band = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       band.setAttribute('d', path);

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parseConnection, parseImport, settingsPatchSchema, Store, matchesOrigin, matchesNetworkOrigin, trustedCertificate } from '../src/model';
 import { Vault } from '../src/vault';
 import { Permissions } from '../src/permissions';
-import { fanCentre, fanPositions, fanRadius, fanSize } from '../src/fan';
+import { fanArc, fanCentre, fanPositions, fanRadius, fanSize } from '../src/fan';
 import { ballBounds, defaultBall, desktopBounds, draggedBall, effectiveLayout, fullscreenInset, snapBall } from '../src/layout';
 import { acceleratorFromInput, defaultShortcuts, effectiveShortcuts, matchShortcut, shortcutLabel, trustedStorage, validShortcut } from '../src/platform';
 import { retryable, retryDelay } from '../src/retry';
@@ -332,62 +332,78 @@ test('Linux 没有系统密钥环时不把密码写入磁盘，其他系统沿�
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('全屏只显示桌面；悬浮球靠边停放、可拖动吸附，按钮沿弧形环绕在球的内侧，展开时球不移动', () => {
+test('全屏只显示桌面；悬浮球可停在四条边，按钮沿弧形朝桌面内侧展开，展开时球不移动', () => {
   // The saved layout preference is untouched; only what is drawn changes.
   const preferred = { sidebar: true, toolbar: true };
   assert.deepEqual(effectiveLayout(preferred, true), { sidebar: false, toolbar: false });
   assert.deepEqual(effectiveLayout(preferred, false), preferred);
   const desktop = desktopBounds(1440, 900, effectiveLayout(preferred, true));
   assert.deepEqual(desktop, { x: 0, y: 0, width: 1440, height: 900 });
-  // Resting: a 44 px ball against the right edge, 30 % down.
-  assert.deepEqual(defaultBall, { side: 'right', y: 0.3 });
-  const rest = ballBounds(desktop, defaultBall, false);
-  assert.deepEqual(rest, { x: 1440 - 44 - 10, y: 270, width: 44, height: 44 });
-  // Opened: the view grows around the ball. The ball's centre is in exactly the same place on screen.
-  for (const side of ['left', 'right'] as const) {
-    const closed = ballBounds(desktop, { side, y: 0.3 }, false);
-    const open = ballBounds(desktop, { side, y: 0.3 }, true);
-    assert.deepEqual([open.width, open.height], [fanSize.width, fanSize.height]);
-    assert.deepEqual([open.x + fanCentre(side).x, open.y + fanCentre(side).y], [closed.x + 22, closed.y + 22]);
-    assert.ok(open.x >= desktop.x && open.x + open.width <= desktop.x + desktop.width);
-  }
-  // The buttons sit on an arc around the ball, on the inward side, without touching each other.
-  for (const [count, side] of [[3, 'right'], [4, 'right'], [4, 'left']] as const) {
-    const centre = fanCentre(side);
-    const points = fanPositions(count, side);
-    for (const point of points) {
-      assert.ok(Math.abs(Math.hypot(point.x - centre.x, point.y - centre.y) - fanRadius) < 1e-9);
-      assert.ok(side === 'right' ? point.x < centre.x : point.x > centre.x, 'buttons open towards the desktop');
-      assert.ok(point.x - 15 >= 0 && point.x + 15 <= fanSize.width && point.y - 15 >= 0 && point.y + 15 <= fanSize.height);
+  const sides = ['left', 'right', 'top', 'bottom'] as const;
+  // Resting: a 44 px ball 10 px inside its edge.
+  assert.deepEqual(defaultBall, { side: 'right', at: 0.3 });
+  assert.deepEqual(ballBounds(desktop, defaultBall, false), { x: 1440 - 44 - 10, y: 270, width: 44, height: 44 });
+  assert.deepEqual(ballBounds(desktop, { side: 'left', at: 0.3 }, false), { x: 10, y: 270, width: 44, height: 44 });
+  assert.deepEqual(ballBounds(desktop, { side: 'top', at: 0.5 }, false), { x: 720, y: 10, width: 44, height: 44 });
+  assert.deepEqual(ballBounds(desktop, { side: 'bottom', at: 0.5 }, false), { x: 720, y: 900 - 44 - 10, width: 44, height: 44 });
+  for (const side of sides) {
+    for (const at of [0, 0.3, 1]) {
+      const closed = ballBounds(desktop, { side, at }, false, 34);
+      const open = ballBounds(desktop, { side, at }, true, 34);
+      // Opening grows the view around the ball: its centre is in exactly the same place on screen,
+      assert.deepEqual([open.x + fanCentre(side).x, open.y + fanCentre(side).y], [closed.x + 22, closed.y + 22], `${side} ${at}`);
+      // and the whole arc is on the desktop, below the strip macOS covers, even from a corner.
+      assert.ok(open.x >= 0 && open.x + open.width <= 1440 && open.y >= 34 && open.y + open.height <= 900, `${side} ${at}`);
+      assert.deepEqual([open.width, open.height], [fanSize(side).width, fanSize(side).height]);
     }
-    for (let index = 1; index < count; index++) {
-      assert.ok(Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y) > 30 + 2);
-    }
-    // The band hugs the ball: its inner edge is 7 px from the 40 px ball.
-    assert.equal(fanRadius - 19 - 20, 7);
-    // Symmetric above and below the ball.
-    assert.ok(Math.abs(points[0].y + points[count - 1].y - 2 * centre.y) < 1e-9);
   }
+  // The buttons sit on an arc that hugs the ball, on the side facing the desktop, without touching.
+  for (const side of sides) {
+    for (const count of [3, 4]) {
+      const centre = fanCentre(side);
+      const size = fanSize(side);
+      const points = fanPositions(count, side);
+      for (const point of points) {
+        assert.ok(Math.abs(Math.hypot(point.x - centre.x, point.y - centre.y) - fanRadius) < 1e-9);
+        const towardsDesktop = { left: point.x > centre.x, right: point.x < centre.x, top: point.y > centre.y, bottom: point.y < centre.y }[side];
+        assert.ok(towardsDesktop, `${side}: buttons open towards the desktop`);
+        assert.ok(point.x - 15 >= 0 && point.x + 15 <= size.width && point.y - 15 >= 0 && point.y + 15 <= size.height, `${side}: inside the view`);
+      }
+      for (let index = 1; index < count; index++) {
+        assert.ok(Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y) > 30 + 2);
+      }
+      // Reading order: top to bottom beside a side edge, left to right along the top or bottom.
+      const key = side === 'left' || side === 'right' ? 'y' : 'x';
+      for (let index = 1; index < count; index++) assert.ok(points[index][key] > points[index - 1][key]);
+      // The band is drawn the short way round, through the side facing the desktop.
+      assert.match(fanArc(count, side), { left: / 0 0 1 /, right: / 0 0 0 /, top: / 0 0 0 /, bottom: / 0 0 1 / }[side]);
+    }
+  }
+  assert.equal(fanRadius - 19 - 20, 7); // gap between the 40 px ball and the inner edge of the band
   // It follows the sidebar: positions are relative to the desktop, not the window.
   const beside = desktopBounds(1440, 900, { sidebar: true, toolbar: false }, 28);
-  assert.equal(ballBounds(beside, { side: 'left', y: 0.5 }, false).x, 242);
-  // What macOS covers at the top of a full-screen window: the title strip (31 px measured), plus
-  // the menu bar where it slides over the window instead of sitting in the camera-housing band.
-  assert.equal(fullscreenInset(33, 0), 34);
-  assert.equal(fullscreenInset(0, 0), 58);
-  // A ball parked at the very top or bottom keeps room for its arc, clear of that strip and of the
-  // screen edges, so opening it there never moves it or cuts the arc off.
-  for (const y of [0, 1]) {
-    const open = ballBounds(desktop, { side: 'right', y }, true, 34);
-    assert.ok(open.y >= 34 && open.y + open.height <= 900);
-    assert.equal(ballBounds(desktop, { side: 'right', y }, false, 34).y + 22, open.y + fanCentre('right').y);
-  }
-  // Dragging follows the pointer but stays on the desktop; dropping snaps to the nearer side.
+  assert.equal(ballBounds(beside, { side: 'left', at: 0.5 }, false).x, 242);
+  assert.equal(ballBounds(beside, { side: 'top', at: 0.5 }, false).y, 38);
+  // At the top edge the ball sits 10 px from the top of the full-screen window. Only where that
+  // window starts at the screen edge itself (no camera housing) does it stay a menu-bar height lower.
+  assert.equal(fullscreenInset(33, 0), 0);
+  assert.equal(fullscreenInset(0, 0), 24);
+  assert.equal(ballBounds(desktop, { side: 'top', at: 0.5 }, false, fullscreenInset(33, 0)).y, 10);
+  assert.equal(ballBounds(desktop, { side: 'top', at: 0.5 }, false, fullscreenInset(0, 0)).y, 34);
+  // Dragging follows the pointer but stays on the desktop; dropping snaps to the nearest of the
+  // four edges and keeps the place along that edge.
   const start = ballBounds(desktop, defaultBall, false);
   assert.deepEqual(draggedBall(desktop, start, -900, 200), { x: 486, y: 470, width: 44, height: 44 });
   assert.deepEqual(draggedBall(desktop, start, 500, -5000, 34), { x: 1396, y: 34, width: 44, height: 44 });
-  assert.deepEqual(snapBall(desktop, draggedBall(desktop, start, -900, 200)), { side: 'left', y: 470 / 900 });
-  assert.equal(snapBall(desktop, draggedBall(desktop, start, -300, 0)).side, 'right');
+  const drop = (x: number, y: number) => snapBall(desktop, { x, y, width: 44, height: 44 });
+  assert.deepEqual(drop(40, 470), { side: 'left', at: 470 / 900 });
+  assert.deepEqual(drop(1380, 300), { side: 'right', at: 300 / 900 });
+  assert.deepEqual(drop(700, 20), { side: 'top', at: 700 / 1440 });
+  assert.deepEqual(drop(900, 840), { side: 'bottom', at: 900 / 1440 });
+  // Dropped where it was picked up from, it stays there.
+  for (const ball of [{ side: 'top', at: 0.4 }, { side: 'bottom', at: 0.7 }, { side: 'left', at: 0.6 }] as const) {
+    assert.deepEqual(ballBounds(desktop, snapBall(desktop, ballBounds(desktop, ball, false)), false), ballBounds(desktop, ball, false));
+  }
 });
 
 test('悬浮球位置随配置保存，不随连接配置导出', () => {
@@ -395,10 +411,15 @@ test('悬浮球位置随配置保存，不随连接配置导出', () => {
   try {
     const store = new Store(directory);
     assert.deepEqual(store.ball, defaultBall);
-    store.setBall({ side: 'left', y: 0.62 });
-    assert.deepEqual(new Store(directory).ball, { side: 'left', y: 0.62 });
+    store.setBall({ side: 'top', at: 0.62 });
+    assert.deepEqual(new Store(directory).ball, { side: 'top', at: 0.62 });
     assert.equal(store.export().includes('ball'), false);
-    assert.throws(() => store.setBall({ side: 'top' as never, y: 0.5 }));
-    assert.throws(() => store.setBall({ side: 'left', y: 3 }));
+    assert.throws(() => store.setBall({ side: 'middle' as never, at: 0.5 }));
+    assert.throws(() => store.setBall({ side: 'left', at: 3 }));
+    // A position saved by the earlier left/right-only version is still read.
+    const file = join(directory, 'connections.json');
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    writeFileSync(file, JSON.stringify({ ...saved, ball: { side: 'left', y: 0.25 } }));
+    assert.deepEqual(new Store(directory).ball, { side: 'left', at: 0.25 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
