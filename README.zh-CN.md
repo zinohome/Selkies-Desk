@@ -2,7 +2,7 @@
 
 macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。本次安装包仅留存在 Mac 开发环境，等待用户要求后再提供；未上传 Multica、发布 GitHub Release 或商店。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.3.0)，附 `SHA256SUMS-0.3.0.txt` 供核对。
 
 ## 0.3.0 多平台安装包
 

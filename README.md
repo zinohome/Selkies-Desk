@@ -14,4 +14,4 @@ npm run package       # macOS arm64
 npm run package:all   # macOS arm64/x64、Windows x64、Ubuntu amd64
 ```
 
-只有 Apple Silicon / arm64 的 macOS 包在本机测试过；Intel Mac、Windows 和 Ubuntu 包已构建但未在对应系统运行。macOS 包采用 ad-hoc 签名，未经 Apple Developer ID 签名或公证；Windows 包未签名。本次安装包仅保留在 Mac 开发环境，等待用户另行要求，不上传 Multica 或发布 Release。
+只有 Apple Silicon / arm64 的 macOS 包在本机测试过；Intel Mac、Windows 和 Ubuntu 包已构建但未在对应系统运行。macOS 包采用 ad-hoc 签名，未经 Apple Developer ID 签名或公证；Windows 包未签名。安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.3.0)，附 `SHA256SUMS-0.3.0.txt` 供核对。
