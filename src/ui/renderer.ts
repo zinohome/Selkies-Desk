@@ -137,7 +137,17 @@ function list() {
       copy.append(name, address);
       row.append(tile, copy, indicator);
       row.onclick = () => connect(connection.id);
-      container.append(row);
+      // The row connects; the three dots beside it open that connection's settings.
+      const more = document.createElement('button');
+      more.className = 'connection-more';
+      more.append(icon('more', 16));
+      more.setAttribute('aria-label', t('ui.edit', { name: connection.name }));
+      more.title = t('ui.connectionSettings');
+      more.onclick = () => { selected = connection.id; void openEditor(connection); };
+      const line = document.createElement('div');
+      line.className = 'connection-row';
+      line.append(row, more);
+      container.append(line);
     }
   }
 }

@@ -265,3 +265,10 @@ input.switch:checked::after { transform: translateX(16px); }
 .strip .icon-button { width: 24px; height: 22px; padding: 3px; border-radius: 5px; }
 .strip .action-divider { height: 12px; margin: 0 4px; }
 #strip-disconnect { color: var(--danger); }
+
+/* Each sidebar row carries its own three-dot button for that connection's settings. */
+.connection-row { position: relative; }
+.connection-row .connection-button { padding-right: 34px; }
+.connection-more { position: absolute; right: 4px; top: 50%; width: 26px; height: 26px; margin-top: -14px; padding: 0; display: grid; place-items: center; border-color: transparent; border-radius: 6px; background: transparent; color: var(--faint); }
+.connection-more:hover { background: var(--hover); color: var(--text); }
+.connection-row .selected + .connection-more:hover { background: var(--accent-soft); }

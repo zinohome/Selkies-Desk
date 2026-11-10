@@ -984,6 +984,15 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     const other = sidebar.getByRole('button', { name: '测试机', exact: true });
     await expect(group).toHaveAttribute('aria-expanded', 'true');
     await expect(alice).toBeVisible();
+    // Every row has its own three-dot button that opens that connection's settings, without connecting to it.
+    const before = (await state()).status;
+    await sidebar.getByRole('button', { name: '编辑 测试机', exact: true }).click();
+    await expect(ui.getByRole('heading', { name: '编辑连接', exact: true })).toBeVisible();
+    await expect(ui.getByLabel('连接名称')).toHaveValue('测试机');
+    await expect(ui.getByLabel('分组', { exact: true })).toHaveValue('第二组');
+    await ui.getByRole('button', { name: '取消', exact: true }).click();
+    expect((await state()).status).toMatchObject({ id: before.id, phase: before.phase });
+    expect(await sidebar.getByRole('button', { name: /^编辑 / }).count()).toBe((await state()).connections.length);
     await group.click();
     await expect(group).toHaveAttribute('aria-expanded', 'false');
     await expect(alice).toHaveCount(0);
