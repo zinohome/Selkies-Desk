@@ -835,4 +835,53 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await expect.poll(async () => (await state()).status.phase).toBe('loaded');
     expect(await invoke({ type: 'save', connection })).toMatchObject({ ok: true });
   });
+
+  test('悬浮操作条用鼠标事件操作：移到手柄即展开，按钮可点；全屏时按钮在菜单栏遮挡区之下', async () => {
+    const controlPage = application.windows().find(window => window.url().endsWith('/controls.html'))!;
+    // Mouse events are injected into the controls view itself, the same path a physical mouse takes inside
+    // the app. They do not pass through the window server, so the system menu bar never slides down here.
+    const mouse = (type: string, x: number, y: number) => application.evaluate(({ webContents }, event) => {
+      const contents = webContents.getAllWebContents().find(contents => contents.getURL().endsWith('/controls.html'))!;
+      contents.sendInputEvent({ type: event.type, x: event.x, y: event.y, button: 'left', clickCount: 1 } as any);
+    }, { type, x, y });
+    const hoverHandle = async () => {
+      await mouse('mouseMove', 32, 11);
+      await expect.poll(async () => (await state()).controlsExpanded).toBe(true);
+    };
+    const click = async (name: string) => {
+      const target = controlPage.getByRole('button', { name, exact: true });
+      await expect(target).toBeVisible();
+      const box = (await target.boundingBox())!;
+      const x = Math.round(box.x + box.width / 2);
+      const y = Math.round(box.y + box.height / 2);
+      await mouse('mouseMove', x, y);
+      await mouse('mouseDown', x, y);
+      await mouse('mouseUp', x, y);
+      return box;
+    };
+    const isFullScreen = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
+    await invoke({ type: 'layout', target: 'focus' });
+    await expect.poll(async () => (await state()).layout).toEqual({ sidebar: false, toolbar: false });
+    await hoverHandle();
+    // Every control is an icon with a readable name, and the pill is no wider than its view.
+    for (const name of ['常规模式', '显示侧栏', '显示工具栏', '进入全屏', '重连', '断开', '收起会话操作条']) {
+      const control = controlPage.getByRole('button', { name, exact: true });
+      await expect(control.locator('svg')).toHaveCount(1);
+      await expect(control).toHaveText('');
+    }
+    await click('显示侧栏');
+    await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: false });
+    if (fullscreenAvailable()) {
+      await hoverHandle();
+      await click('进入全屏');
+      await expect.poll(isFullScreen).toBe(true);
+      await hoverHandle();
+      const exit = await click('退出全屏');
+      if (process.platform === 'darwin') expect(exit.y).toBeGreaterThanOrEqual(56);
+      await expect.poll(isFullScreen).toBe(false);
+    }
+    await hoverHandle();
+    await click('常规模式');
+    await expect.poll(async () => (await state()).layout).toEqual({ sidebar: true, toolbar: true });
+  });
 });
