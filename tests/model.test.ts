@@ -342,9 +342,9 @@ test('macOS 全屏时不显示顶部工具栏，会话操作条展开后悬在�
   // Collapsed: a 64 px handle on the top edge. Expanded: buttons start below the reveal zone.
   assert.deepEqual(controlsBounds(desktop, false, fullscreenRevealZone), { x: 232 + 572, y: 0, width: 64, height: 22 });
   const expanded = controlsBounds(desktop, true, fullscreenRevealZone);
-  assert.equal(expanded.height - 48, fullscreenRevealZone);
+  assert.equal(expanded.height - 52, fullscreenRevealZone);
   assert.ok(fullscreenRevealZone >= 52, 'must clear a 24 px menu bar plus a 28 px title strip');
   // In a window nothing covers the top edge, so the buttons hang directly from it.
-  assert.deepEqual(controlsBounds(desktop, true, 0), { x: 232 + 224, y: 0, width: 760, height: 48 });
-  assert.equal(controlsBounds({ x: 0, width: 500 }, true, 0).width, 500);
+  assert.deepEqual(controlsBounds(desktop, true, 0), { x: 232 + 444, y: 0, width: 320, height: 52 });
+  assert.equal(controlsBounds({ x: 0, width: 200 }, true, 0).width, 200);
 });

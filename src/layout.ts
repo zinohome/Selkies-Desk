@@ -34,7 +34,9 @@ export function effectiveLayout(layout: Layout, macFullscreen: boolean): Layout 
  * Bounds of the floating session controls, centred over the desktop. Collapsed, they are a small
  * handle on the top edge. Expanded, the buttons hang `inset` pixels lower so they stay clickable.
  */
+export const controlsWidth = 320;
 export function controlsBounds(desktop: { x: number; width: number }, expanded: boolean, inset: number) {
-  const width = expanded ? Math.min(760, desktop.width) : 64;
-  return { x: desktop.x + Math.round((desktop.width - width) / 2), y: 0, width, height: expanded ? 48 + inset : 22 };
+  // Only as wide as the pill itself, so the desktop on either side stays clickable.
+  const width = expanded ? Math.min(controlsWidth, desktop.width) : 64;
+  return { x: desktop.x + Math.round((desktop.width - width) / 2), y: 0, width, height: expanded ? 52 + inset : 22 };
 }

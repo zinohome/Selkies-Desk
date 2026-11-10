@@ -808,6 +808,8 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await ui.getByRole('button', { name: '连接', exact: true }).click();
     await expect(ui.getByText('等待重连', { exact: true })).toBeVisible();
     second = await new MockDesktop().start(port);
+    // The first retry can land before the server is listening again; allow for the next ones (2 s, 4 s, 8 s).
+    await expect(ui.getByRole('heading', { name: '服务器认证' })).toBeVisible({ timeout: 20000 });
     await login();
     await expect.poll(async () => (await state()).status.phase).toBe('loaded');
     await expect.poll(() => second.streams).toBe(1);

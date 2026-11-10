@@ -1,7 +1,17 @@
-:root{font:12px -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC",sans-serif;color:#e9edf4;background:transparent;color-scheme:dark}
-*{box-sizing:border-box}body{margin:0;overflow:hidden}button{font:inherit;cursor:pointer;color:inherit;border:0}button:focus-visible{outline:2px solid #7ab5ff;outline-offset:-3px}
-#handle{display:grid;place-items:center;width:64px;height:22px;background:#252b36eb;border:1px solid #ffffff38;border-top:0;border-radius:0 0 9px 9px}
-#handle span{width:24px;height:3px;background:#c4ccda;border-radius:2px}
-#strip{display:flex;align-items:center;justify-content:center;height:46px;gap:3px;padding:5px 7px;background:#252b36f7;border:1px solid #ffffff30;border-top:0;border-radius:0 0 12px 12px;box-shadow:0 1px 3px #0005}
-#strip button{height:32px;background:transparent;padding:0 10px;border-radius:6px;white-space:nowrap}#strip button:hover{background:#ffffff21}#restore{color:#9ac6ff}#disconnect{color:#ffada8}.separator{height:18px;width:1px;margin:0 5px;background:#ffffff24}[hidden]{display:none!important}
-#strip.floating{border-top:1px solid #ffffff30;border-radius:12px}
+:root { font: 12px -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif; color: #e9edf4; background: transparent; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+[hidden] { display: none !important; }
+button { font: inherit; cursor: pointer; color: inherit; border: 0; }
+button:focus-visible { outline: 2px solid #7ab5ff; outline-offset: -2px; }
+svg { display: block; pointer-events: none; }
+#handle { display: grid; place-items: center; width: 64px; height: 22px; background: #23262deb; border: 1px solid #ffffff33; border-top: 0; border-radius: 0 0 9px 9px; }
+#handle span { width: 24px; height: 3px; background: #c4ccda; border-radius: 2px; }
+/* The expanded controls are a compact pill of icon buttons; names appear as tooltips. */
+#strip { display: flex; align-items: center; gap: 2px; width: max-content; height: 38px; margin: 5px auto 0; padding: 0 6px; background: #23262df5; border: 1px solid #ffffff2e; border-radius: 19px; box-shadow: 0 4px 14px #00000059; }
+#strip button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 50%; background: transparent; color: #dfe4ec; }
+#strip button:hover { background: #ffffff24; color: #fff; }
+#restore { color: #9ac6ff !important; }
+#disconnect { color: #ff9d96 !important; }
+#disconnect:hover { background: #ff6b5e33 !important; }
+.separator { height: 16px; width: 1px; margin: 0 4px; background: #ffffff26; }

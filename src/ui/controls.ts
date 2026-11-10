@@ -1,6 +1,7 @@
 import type { Action, AppState } from '../protocol';
 import type {} from './renderer';
 import { setLanguage, t } from '../i18n';
+import { icon, type IconName } from './icons';
 
 const control = (id: string) => document.getElementById(id) as HTMLButtonElement;
 let collapseTimer: ReturnType<typeof setTimeout>;
@@ -12,6 +13,16 @@ function expand() {
   clearTimeout(collapseTimer);
   void invoke({ type: 'controls', expanded: true });
 }
+/** Icon button whose name is exposed to assistive technology and shown as a tooltip. */
+function label(id: string, name: IconName, text: string, shortcut = '') {
+  const target = control(id);
+  if (target.dataset.icon !== name) {
+    target.replaceChildren(icon(name, 18));
+    target.dataset.icon = name;
+  }
+  target.setAttribute('aria-label', text);
+  target.title = shortcut ? `${text} · ${shortcut}` : text;
+}
 function render(state: AppState) {
   setLanguage(state.language);
   const keys = state.shortcutLabels;
@@ -19,22 +30,17 @@ function render(state: AppState) {
   control('handle').setAttribute('aria-label', t('controls.expand'));
   control('handle').title = t('controls.expand');
   control('strip').hidden = !state.controlsExpanded;
-  control('strip').style.marginTop = `${state.controlsInset}px`;
-  control('strip').classList.toggle('floating', state.controlsInset > 0);
+  control('strip').setAttribute('aria-label', t('controls.label'));
+  control('strip').style.marginTop = `${state.controlsInset + 5}px`;
   // Full screen on macOS has no toolbar to show, so the button would do nothing there.
   control('toolbar').hidden = state.controlsInset > 0;
-  control('strip').setAttribute('aria-label', t('controls.label'));
-  control('restore').textContent = t('controls.regular');
-  control('sidebar').textContent = t(state.preferredLayout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar');
-  control('sidebar').title = keys.sidebar;
-  control('toolbar').textContent = t(state.preferredLayout.toolbar ? 'ui.hideToolbar' : 'ui.showToolbar');
-  control('toolbar').title = keys.toolbar;
-  control('fullscreen').textContent = t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen');
-  control('fullscreen').title = keys.fullscreen;
-  control('reconnect').textContent = t('ui.reconnect');
-  control('reconnect').title = keys.reconnect;
-  control('disconnect').textContent = t('ui.disconnect');
-  control('collapse').setAttribute('aria-label', t('controls.collapse'));
+  label('restore', 'regular', t('controls.regular'), keys.focus);
+  label('sidebar', 'panelLeft', t(state.preferredLayout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar'), keys.sidebar);
+  label('toolbar', 'panelTop', t(state.preferredLayout.toolbar ? 'ui.hideToolbar' : 'ui.showToolbar'), keys.toolbar);
+  label('fullscreen', state.fullscreen ? 'minimize' : 'maximize', t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen'), keys.fullscreen);
+  label('reconnect', 'reconnect', t('ui.reconnect'), keys.reconnect);
+  label('disconnect', 'disconnect', t('ui.disconnect'));
+  label('collapse', 'collapse', t('controls.collapse'));
 }
 control('handle').onclick = expand;
 control('handle').onmouseenter = expand;
