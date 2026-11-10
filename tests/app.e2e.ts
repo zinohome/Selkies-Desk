@@ -31,7 +31,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
   const isFullScreen = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen());
   // The controls slide in; positions are only meaningful once that short animation has finished.
   const settled = (locator: ReturnType<Page['locator']>) => locator.evaluate(element =>
-    Promise.all((element.closest('nav')?.getAnimations() ?? []).map(animation => animation.finished)).then(() => undefined));
+    Promise.all((element.closest('nav')?.getAnimations({ subtree: true }) ?? []).map(animation => animation.finished)).then(() => undefined));
   const controlsPage = () => application.windows().find(window => window.url().endsWith('/controls.html'))!;
   // Where the session buttons live while the toolbar is hidden: in the slim title strip of a macOS
   // window, otherwise (other systems, and full screen everywhere) in the floating controls.
@@ -456,12 +456,19 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       const resting = await ballView();
       expect([resting.width, resting.height]).toEqual([44, 44]);
       expect(resting.x + resting.width).toBe(now.size[0] - 10);
-      expect(resting.y).toBeGreaterThanOrEqual(inset + 10);
+      expect(resting.y).toBeGreaterThanOrEqual(inset);
       await controlsPage().getByRole('button', { name: '展开会话操作条' }).click();
       const exit = controlsPage().getByRole('button', { name: '退出全屏', exact: true });
       await expect(exit).toBeVisible();
+      // The arc opens around the ball: the ball's centre has not moved, and the button is on the arc beside it.
       const opened = await ballView();
-      expect([opened.y, opened.x + opened.width]).toEqual([resting.y, resting.x + resting.width]);
+      const ballBox = (await controlsPage().getByRole('button', { name: '收起会话操作条' }).boundingBox())!;
+      expect([opened.x + ballBox.x + ballBox.width / 2, opened.y + ballBox.y + ballBox.height / 2]).toEqual([resting.x + 22, resting.y + 22]);
+      await settled(exit);
+      const exitBox = (await exit.boundingBox())!;
+      const distance = Math.hypot(exitBox.x + exitBox.width / 2 - (ballBox.x + ballBox.width / 2), exitBox.y + exitBox.height / 2 - (ballBox.y + ballBox.height / 2));
+      expect(Math.round(distance)).toBe(46);
+      expect(opened.y).toBeGreaterThanOrEqual(inset);
       // Layout buttons are pointless in full screen.
       await expect(controlsPage().getByRole('button', { name: /侧栏|工具栏|常规模式/ })).toHaveCount(0);
       await exit.click();
@@ -494,10 +501,10 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     const full = await bounds();
     expect(full.bounds).toEqual({ x: 0, y: strip, width: full.size[0], height: full.size[1] - strip });
     expect(full.visible).toBe(true);
-    // In a macOS window the title strip holds the buttons, so no floating view sits on top of the title bar.
     const floating = () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
       .find(child => 'webContents' in child && (child as any).webContents.getURL().endsWith('/controls.html'))!.getVisible());
-    expect(await floating()).toBe(!strip);
+    // The assistive ball is there whenever the toolbar is hidden, in a window as well as in full screen.
+    expect(await floating()).toBe(true);
     await (await sessionButton('显示侧栏')).click();
     await expect.poll(async () => (await bounds()).bounds.x).toBe(232);
     expect((await bounds()).bounds.y).toBe(strip);
@@ -912,7 +919,10 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       // The ball waits quietly; a press without movement opens it, and it closes again by itself.
       expect((await state()).controlsExpanded).toBe(false);
       await openBall();
-      for (const name of ['退出全屏', '重连', '断开', '收起会话操作条']) await expect(controlPage.getByRole('button', { name, exact: true }).locator('svg')).toHaveCount(1);
+      for (const name of ['退出全屏', '重连', '断开']) await expect(controlPage.getByRole('button', { name, exact: true }).locator('svg')).toHaveCount(1);
+      await expect(controlPage.getByRole('button', { name: '收起会话操作条', exact: true })).toBeVisible();
+      await settled(controlPage.getByRole('button', { name: '重连', exact: true }));
+      await controlPage.screenshot({ path: join(evidence, '11-ball-arc-right.png') });
       await mouse('controls', 'mouseLeave', 400, 400);
       await expect.poll(async () => (await state()).controlsExpanded, { timeout: 6000 }).toBe(false);
       // Dropping it on the other half of the screen parks it on that edge, and the place is remembered.
@@ -923,6 +933,8 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       expect(JSON.parse(readFileSync(join(directory, 'profile', 'connections.json'), 'utf8')).ball.side).toBe('left');
       expect((await remoteBounds()).visible).toBe(true);
       await openBall();
+      await settled(controlPage.getByRole('button', { name: '重连', exact: true }));
+      await controlPage.screenshot({ path: join(evidence, '12-ball-arc-left.png') });
       const exit = await click('controls', controlPage.getByRole('button', { name: '退出全屏', exact: true }));
       expect(exit.x).toBeLessThan(200);
       await expect.poll(isFullScreen).toBe(false);

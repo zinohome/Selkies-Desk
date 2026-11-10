@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { ballSize, fanReach, fanSize } from './fan';
+export { ballSize };
 
 export const layoutSchema = z.object({ sidebar: z.boolean(), toolbar: z.boolean() }).strict();
 export type Layout = z.infer<typeof layoutSchema>;
@@ -40,16 +42,13 @@ export function fullscreenInset(windowTop: number, displayTop: number) {
 export function effectiveLayout(layout: Layout, fullscreen: boolean): Layout {
   return fullscreen ? { sidebar: false, toolbar: false } : { ...layout };
 }
-export const controlsWidth = 320;
 /**
  * The floating session controls are an assistive ball, like the one on phones: a small round
- * button that rests against the left or right edge of the desktop, can be dragged anywhere along
- * it, and opens into a row of buttons when clicked. Nothing depends on the top edge of the screen.
+ * button that rests against the left or right edge of the desktop, can be dragged along it, and
+ * opens an arc of buttons around itself when clicked. Nothing depends on the top of the screen.
  */
-export const ballSize = 44;
 const ballMargin = 10;
-const ballSchemaShape = { side: z.enum(['left', 'right']), y: z.number().min(0).max(1) };
-export const ballSchema = z.object(ballSchemaShape).strict();
+export const ballSchema = z.object({ side: z.enum(['left', 'right']), y: z.number().min(0).max(1) }).strict();
 /** `y` is the top of the ball as a fraction of the desktop height, so it survives resizing. */
 export type Ball = z.infer<typeof ballSchema>;
 export const defaultBall: Ball = { side: 'right', y: 0.3 };
@@ -57,18 +56,23 @@ type Rect = { x: number; y: number; width: number; height: number };
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /**
- * Where the controls sit inside the desktop. `topInset` keeps them out of the strip that macOS
- * covers at the top of a full-screen window. Expanded, the row grows inwards from the ball's edge.
+ * Where the controls sit inside the desktop. The resting ball keeps enough room above and below
+ * for its arc, so opening never has to move it. `topInset` is the strip macOS covers at the top
+ * of a full-screen window. Opened, the view grows around the ball; the ball's centre stays put.
  */
 export function ballBounds(desktop: Rect, ball: Ball, expanded: boolean, topInset = 0): Rect {
-  const width = expanded ? Math.min(controlsWidth, Math.max(ballSize, desktop.width - 2 * ballMargin)) : ballSize;
-  const height = ballSize;
-  const top = desktop.y + topInset + ballMargin;
-  const bottom = Math.max(top, desktop.y + desktop.height - height - ballMargin);
-  return {
-    x: ball.side === 'left' ? desktop.x + ballMargin : desktop.x + desktop.width - width - ballMargin,
+  const room = fanReach - ballSize / 2;
+  const top = desktop.y + topInset + room;
+  const bottom = Math.max(top, desktop.y + desktop.height - ballSize - room);
+  const rest = {
+    x: ball.side === 'left' ? desktop.x + ballMargin : desktop.x + desktop.width - ballSize - ballMargin,
     y: clamp(desktop.y + Math.round(ball.y * desktop.height), top, bottom),
-    width, height
+    width: ballSize, height: ballSize
+  };
+  if (!expanded) return rest;
+  return {
+    x: ball.side === 'left' ? rest.x : rest.x + ballSize - fanSize.width,
+    y: rest.y - room, width: fanSize.width, height: fanSize.height
   };
 }
 /** While being dragged the ball follows the pointer freely, but never leaves the desktop. */

@@ -2,11 +2,14 @@ import type { Action, AppState } from '../protocol';
 import type {} from './renderer';
 import { setLanguage, t } from '../i18n';
 import { icon, type IconName } from './icons';
+import { ballSize, fanArc, fanBand, fanCentre, fanPositions, fanSize } from '../fan';
 
 const control = (id: string) => document.getElementById(id) as HTMLButtonElement;
 const ball = control('ball');
 let collapseTimer: ReturnType<typeof setTimeout>;
 let inside = false;
+let expanded = false;
+const buttons = ['restore', 'fullscreen', 'reconnect', 'disconnect'];
 async function invoke(action: Action) {
   const result = await window.desk.invoke(action);
   if (result.state) render(result.state);
@@ -21,33 +24,63 @@ function collapseSoon(delay: number) {
 function label(id: string, name: IconName, text: string, shortcut = '') {
   const target = control(id);
   if (target.dataset.icon !== name) {
-    target.replaceChildren(icon(name, 18));
+    target.replaceChildren(icon(name, 16));
     target.dataset.icon = name;
   }
   target.setAttribute('aria-label', text);
   target.title = shortcut ? `${text} · ${shortcut}` : text;
 }
+const place = (target: HTMLElement, point: { x: number; y: number }) => {
+  target.style.left = `${point.x}px`;
+  target.style.top = `${point.y}px`;
+};
 function render(state: AppState) {
   setLanguage(state.language);
   const keys = state.shortcutLabels;
-  document.body.className = state.ballSide;
-  ball.hidden = state.controlsExpanded;
-  ball.setAttribute('aria-label', t('controls.expand'));
-  ball.title = t('controls.expand');
-  control('strip').hidden = !state.controlsExpanded;
+  const open = state.controlsExpanded;
+  expanded = open;
+  // Collapsed, the view is exactly the ball. Opened, it grows around the ball, which stays where it was.
+  place(ball, open ? fanCentre(state.ballSide) : { x: ballSize / 2, y: ballSize / 2 });
+  ball.classList.toggle('open', open);
+  ball.setAttribute('aria-label', t(open ? 'controls.collapse' : 'controls.expand'));
+  ball.setAttribute('aria-expanded', String(open));
+  ball.title = t(open ? 'controls.collapse' : 'controls.expand');
+  control('strip').hidden = !open;
   control('strip').setAttribute('aria-label', t('controls.label'));
   // Full screen always shows the desktop alone, so the layout buttons would do nothing there.
-  for (const id of ['restore', 'sidebar', 'toolbar', 'layout-separator']) control(id).hidden = state.fullscreen;
+  control('restore').hidden = state.fullscreen;
   label('restore', 'regular', t('controls.regular'), keys.focus);
-  label('sidebar', 'panelLeft', t(state.preferredLayout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar'), keys.sidebar);
-  label('toolbar', 'panelTop', t(state.preferredLayout.toolbar ? 'ui.hideToolbar' : 'ui.showToolbar'), keys.toolbar);
   label('fullscreen', state.fullscreen ? 'minimize' : 'maximize', t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen'), keys.fullscreen);
   label('reconnect', 'reconnect', t('ui.reconnect'), keys.reconnect);
   label('disconnect', 'disconnect', t('ui.disconnect'));
-  label('collapse', 'close', t('controls.collapse'));
+  if (!open) return;
+  const shown = buttons.map(control).filter(target => !target.hidden);
+  fanPositions(shown.length, state.ballSide).forEach((point, index) => {
+    place(shown[index], point);
+    shown[index].style.animationDelay = `${index * 22}ms`;
+  });
+  // The band behind the buttons: an arc around the ball that covers just the buttons, with round ends.
+  const path = fanArc(shown.length, state.ballSide);
+  const ring = control('ring');
+  if (ring.dataset.path !== path) {
+    ring.dataset.path = path;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', String(fanSize.width));
+    svg.setAttribute('height', String(fanSize.height));
+    for (const [stroke, width] of [['#ffffff38', 2 * fanBand + 2], ['#1f2229', 2 * fanBand]] as const) {
+      const band = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      band.setAttribute('d', path);
+      band.setAttribute('fill', 'none');
+      band.setAttribute('stroke', stroke);
+      band.setAttribute('stroke-width', String(width));
+      band.setAttribute('stroke-linecap', 'round');
+      svg.append(band);
+    }
+    ring.replaceChildren(svg);
+  }
 }
 
-// A press that moves is a drag; a press that stays put opens the controls.
+// A press that moves is a drag; a press that stays put opens or closes the controls.
 let press: { x: number; y: number; dragging: boolean } | undefined;
 let frame = 0;
 let suppressClick = false;
@@ -83,12 +116,11 @@ ball.onpointercancel = release;
 ball.onclick = () => {
   if (suppressClick) { suppressClick = false; return; }
   clearTimeout(collapseTimer);
-  void invoke({ type: 'controls', expanded: true });
+  void invoke({ type: 'controls', expanded: !expanded });
 };
 
-for (const target of ['restore', 'sidebar', 'toolbar'] as const) control(target).onclick = () => { void invoke({ type: 'layout', target }); };
+control('restore').onclick = () => { void invoke({ type: 'layout', target: 'restore' }); };
 for (const type of ['fullscreen', 'reconnect', 'disconnect'] as const) control(type).onclick = () => { void invoke({ type }); };
-control('collapse').onclick = () => { void invoke({ type: 'controls', expanded: false }); };
 document.documentElement.onmouseenter = () => { inside = true; clearTimeout(collapseTimer); };
 document.documentElement.onmouseleave = () => { inside = false; collapseSoon(1500); };
 document.addEventListener('keydown', event => {

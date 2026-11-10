@@ -46,8 +46,6 @@ const strip = () => integratedTitleBar && !window.isFullScreen() ? stripHeight :
 const macFullscreen = () => os === 'mac' && window.isFullScreen();
 /** Layout actually on screen: the saved preference, except that full screen shows the desktop alone. */
 const layout = () => effectiveLayout(store.layout, window.isFullScreen());
-/** In a macOS window the slim title strip carries the session buttons, so nothing has to float over the title bar. */
-const stripControls = () => integratedTitleBar && !window.isFullScreen();
 const controlsInset = () => {
   if (!macFullscreen()) return 0;
   const bounds = window.getBounds();
@@ -101,7 +99,8 @@ function controlSender(event: IpcMainInvokeEvent) {
   return controls && event.sender === controls.webContents && event.senderFrame === controls.webContents.mainFrame && event.senderFrame.url === controlsURL;
 }
 function layoutControls() {
-  const visible = remote.visible && !layout().toolbar && !stripControls();
+  // The ball is there whenever the toolbar is not: focus mode in a window as well as full screen.
+  const visible = remote.visible && !layout().toolbar;
   controls.setVisible(visible);
   if (!visible) controlsExpanded = false;
   const [width, height] = window.getContentSize();
@@ -196,7 +195,8 @@ async function perform(action: Action): Promise<Result> {
       if (!action.expanded) remote.focus();
       break;
     case 'ballDrag': {
-      controlsExpanded = false;
+      // A drag that starts on an open menu closes it first, so the drag starts from the ball itself.
+      if (controlsExpanded) { controlsExpanded = false; layoutControls(); publish(); }
       ballDrag = { start: ballDrag?.start ?? controls.getBounds(), dx: action.dx, dy: action.dy };
       layoutControls();
       if (action.done) {

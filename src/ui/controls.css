@@ -1,27 +1,25 @@
 :root { font: 12px -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif; color: #e9edf4; background: transparent; color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; overflow: hidden; display: flex; align-items: center; }
-body.left { justify-content: flex-start; }
-body.right { justify-content: flex-end; }
+body { margin: 0; overflow: hidden; position: relative; }
 [hidden] { display: none !important; }
 button { font: inherit; cursor: pointer; color: inherit; border: 0; }
-button:focus-visible { outline: 2px solid #7ab5ff; outline-offset: -2px; }
+button:focus-visible { outline: 2px solid #7ab5ff; outline-offset: 1px; }
 svg { display: block; pointer-events: none; }
-/* Assistive ball: unobtrusive until the pointer comes near, like the one on phones. */
-#ball { display: grid; place-items: center; width: 40px; height: 40px; margin: 2px; padding: 0; border-radius: 50%; background: #1f2229cc; border: 1px solid #ffffff40; box-shadow: 0 2px 10px #00000066; color: #f1f4f8; opacity: .55; transition: opacity .15s, transform .15s; touch-action: none; cursor: grab; }
-#ball::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: #ffffff2e; border: 1px solid #ffffff59; }
-#ball:hover, #ball:focus-visible { opacity: 1; }
+/* Assistive ball: unobtrusive until the pointer comes near, like the one on phones. Positions are set from script. */
+#ball { position: absolute; display: grid; place-items: center; width: 40px; height: 40px; margin: -20px 0 0 -20px; padding: 0; border-radius: 50%; background: #1f2229cc; border: 1px solid #ffffff40; box-shadow: 0 2px 10px #00000066; opacity: .55; transition: opacity .15s, transform .15s; touch-action: none; cursor: grab; }
+#ball::before { content: ""; width: 22px; height: 22px; border-radius: 50%; background: #ffffff2e; border: 1px solid #ffffff59; transition: transform .15s, background .15s; }
+#ball:hover, #ball:focus-visible, #ball.open { opacity: 1; }
+#ball.open::before { transform: scale(.72); background: #ffffff66; }
 #ball.dragging { opacity: 1; transform: scale(1.08); cursor: grabbing; }
-/* Opened: a compact pill of icon buttons; names appear as tooltips. */
-#strip { display: flex; align-items: center; gap: 2px; width: max-content; height: 40px; margin: 2px; padding: 0 6px; background: #1f2229f5; border: 1px solid #ffffff2e; border-radius: 20px; box-shadow: 0 4px 14px #00000059; animation: open .14s ease-out; }
-#strip button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 50%; background: transparent; color: #dfe4ec; }
-#strip button:hover { background: #ffffff24; color: #fff; }
+/* Opened: the buttons sit on a half ring that wraps the ball on the inward side. */
+#strip { position: absolute; inset: 0; }
+#ring { position: absolute; inset: 0; pointer-events: none; opacity: .96; filter: drop-shadow(0 3px 8px #00000066); transform-origin: var(--origin, center); animation: ring .16s ease-out; }
+#strip button { position: absolute; display: grid; place-items: center; width: 30px; height: 30px; margin: -15px 0 0 -15px; padding: 0; border-radius: 50%; background: transparent; color: #e3e8ef; animation: item .18s ease-out backwards; }
+#strip button:hover { background: #ffffff29; color: #fff; }
 #restore { color: #9ac6ff !important; }
 #disconnect { color: #ff9d96 !important; }
-#disconnect:hover { background: #ff6b5e33 !important; }
-.separator { height: 16px; width: 1px; margin: 0 4px; background: #ffffff26; }
-@keyframes open { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
-body.left #strip { transform-origin: left center; }
-body.right #strip { transform-origin: right center; }
-@media (prefers-reduced-motion: reduce) { #strip { animation: none; } #ball { transition: none; } }
+#disconnect:hover { background: #ff6b5e38 !important; }
+@keyframes ring { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: none; } }
+@keyframes item { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #ring, #strip button { animation: none; } #ball, #ball::before { transition: none; } }
