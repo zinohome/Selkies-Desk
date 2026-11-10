@@ -1,6 +1,8 @@
 import type { Action, AppState, Result } from '../protocol';
 import type { Connection } from '../model';
-import { renderToolbarIcons } from './icons';
+import { setLanguage, t, type Language, type MessageKey } from '../i18n';
+import { acceleratorFromInput, commands, type Command } from '../platform';
+import { icon, renderStaticIcons, renderToolbarIcons } from './icons';
 
 declare global {
   interface Window {
@@ -11,6 +13,7 @@ declare global {
     };
   }
 }
+type Entry = AppState['connections'][number];
 const element = <ElementType extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as ElementType;
 const button = (id: string) => element<HTMLButtonElement>(id);
 const input = (id: string) => element<HTMLInputElement>(id);
@@ -18,13 +21,22 @@ const editor = element<HTMLDialogElement>('editor');
 const authDialog = element<HTMLDialogElement>('auth-dialog');
 const certificateDialog = element<HTMLDialogElement>('certificate-dialog');
 const deleteDialog = element<HTMLDialogElement>('delete-dialog');
+const settingsDialog = element<HTMLDialogElement>('settings-dialog');
+const switcher = element<HTMLDialogElement>('switcher');
 const form = element<HTMLFormElement>('connection-form');
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
+const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys'] as const;
 let current: AppState;
 let selected: string | undefined;
+/** Connection the user just asked for; it stays selected while the previous session is still closing. */
+let pending: string | undefined;
 let editing: string | undefined;
 let shownPrompt: string | undefined;
+let shownLanguage: Language | undefined;
+let recording: Command | undefined;
+let switcherIndex = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
+const previews = new Map<string, { stamp: number; url: string }>();
 
 function toast(text: string) {
   element('toast').textContent = text;
@@ -35,32 +47,55 @@ function toast(text: string) {
 async function invoke(action: Action) {
   const result = await window.desk.invoke(action);
   if (result.state) render(result.state);
-  if (!result.ok) toast(result.error || '操作失败，请重试。');
+  if (!result.ok) toast(result.error || t('error.failed'));
   if (result.message) toast(result.message);
   return result;
 }
+/** Applies the current language to every element that declares a `data-i18n` key. */
+function translate() {
+  document.documentElement.lang = current.language === 'zh' ? 'zh-CN' : 'en';
+  for (const target of document.querySelectorAll<HTMLElement>('[data-i18n]')) target.textContent = t(target.dataset.i18n as MessageKey);
+  for (const target of document.querySelectorAll<HTMLElement>('[data-i18n-attr]')) {
+    for (const pair of target.dataset.i18nAttr!.split(';')) {
+      const [attribute, key] = pair.split(':');
+      target.setAttribute(attribute, t(key as MessageKey));
+    }
+  }
+}
 function selection() { return current?.connections.find(connection => connection.id === selected); }
+function matches(connection: Entry, search: string) {
+  return `${connection.name} ${connection.url} ${connection.group} ${connection.notes}`.toLocaleLowerCase().includes(search);
+}
+function connect(id: string) {
+  selected = pending = id;
+  render(current);
+  void invoke({ type: 'connect', id }).finally(() => { if (pending === id) pending = undefined; });
+}
+function phaseOf(connection: Entry) { return connection.id === current.status.id ? current.status.phase : 'idle'; }
+
 function list() {
   const container = element('connections');
   container.replaceChildren();
   const search = input('search').value.trim().toLocaleLowerCase();
-  const connections = current.connections.filter(connection => `${connection.name} ${connection.url} ${connection.group} ${connection.notes}`.toLocaleLowerCase().includes(search));
-  element('count').textContent = String(current.connections.length);
-  const groups = [...new Set(connections.map(connection => connection.group || '未分组'))];
+  const visible = current.connections.filter(connection => matches(connection, search));
+  const groups = [...new Set(visible.map(connection => connection.group || t('ui.ungrouped')))];
   for (const group of groups) {
-    const heading = document.createElement('p');
-    heading.className = 'group-title';
-    heading.textContent = group;
-    container.append(heading);
-    for (const connection of connections.filter(connection => (connection.group || '未分组') === group)) {
+    if (groups.length > 1) {
+      const heading = document.createElement('p');
+      heading.className = 'group-title';
+      heading.textContent = group;
+      container.append(heading);
+    }
+    for (const connection of visible.filter(connection => (connection.group || t('ui.ungrouped')) === group)) {
       const row = document.createElement('button');
       row.className = `connection-button${connection.id === selected ? ' selected' : ''}`;
       row.setAttribute('aria-label', connection.name);
-      row.title = `${connection.name}\n${connection.url}`;
-      const icon = document.createElement('span');
-      icon.className = 'server-icon';
-      icon.textContent = '▤';
-      icon.setAttribute('aria-hidden', 'true');
+      row.title = connection.url;
+      const tile = document.createElement('span');
+      tile.className = 'server-icon';
+      tile.append(icon('monitor', 16));
+      const indicator = document.createElement('i');
+      indicator.className = `connection-light ${phaseOf(connection)}`;
       const copy = document.createElement('span');
       copy.className = 'connection-copy';
       const name = document.createElement('strong');
@@ -68,104 +103,203 @@ function list() {
       const address = document.createElement('small');
       address.textContent = new URL(connection.url).host;
       copy.append(name, address);
-      const indicator = document.createElement('i');
-      indicator.className = 'connection-light';
-      row.append(icon, copy, indicator);
-      row.onclick = () => {
-        selected = connection.id;
-        render(current);
-        void invoke({ type: 'connect', id: connection.id });
-      };
+      row.append(tile, copy, indicator);
+      row.onclick = () => connect(connection.id);
       container.append(row);
     }
   }
-  if (!connections.length) {
-    const message = document.createElement('p');
-    message.className = 'list-empty';
-    message.textContent = search ? '没有找到匹配的连接' : '还没有连接\n添加你的第一台服务器';
-    container.append(message);
-  }
 }
-function render(state: AppState) {
-  current = state;
-  if (state.status.id && state.connections.some(connection => connection.id === state.status.id)) selected = state.status.id;
-  if (selected && !state.connections.some(connection => connection.id === selected)) selected = undefined;
-  const connection = selection();
-  const active = connection?.id === state.status.id;
-  const phase = active ? state.status.phase : 'idle';
-  const phases = { idle: '未连接', loading: '连接中', loaded: '页面已加载', disconnected: '已断开', failed: '连接失败' };
-  document.body.classList.toggle('sidebar-hidden', !state.layout.sidebar);
-  document.body.classList.toggle('toolbar-hidden', !state.layout.toolbar);
-  element('title').textContent = connection?.name || '设备';
-  element('address').textContent = connection?.url || '你的远程工作空间';
-  element('status').textContent = phases[phase];
-  element('status-dot').className = phase;
-  const keys = state.platform.labels;
-  const sidebarLabel = state.layout.sidebar ? '隐藏侧栏' : '显示侧栏';
-  button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
-  button('toggle-sidebar').title = `${sidebarLabel} · ${keys.sidebar}`;
-  button('settings').disabled = !connection;
-  button('connect').disabled = !connection || phase === 'loading' || phase === 'loaded';
-  button('disconnect').disabled = !active || !['loading', 'loaded', 'failed'].includes(phase);
-  button('reconnect').disabled = !connection;
-  button('fullscreen').setAttribute('aria-label', state.fullscreen ? '退出全屏' : '进入全屏');
-  button('fullscreen').title = `${state.fullscreen ? '退出' : '进入'}全屏 · ${keys.fullscreen}`;
-  button('reconnect').title = `重连 · ${keys.reconnect}`;
-  button('toggle-toolbar').title = `隐藏工具栏 · ${keys.toolbar}`;
-  element('focus-hint').textContent = `${keys.focus} 专注模式`;
-  element('build').textContent = `${state.version} · ${state.platform.name}`;
-  renderToolbarIcons(state.fullscreen, state.layout.sidebar);
-  element('empty').hidden = active && ['loading', 'loaded'].includes(phase);
-  element('connection-state').hidden = phase !== 'failed' && phase !== 'loading';
-  element('state-title').textContent = { idle: '准备连接', loading: '正在连接服务器', loaded: '远程页面已加载', disconnected: '连接已断开', failed: '暂时无法连接' }[phase];
-  element('state-detail').textContent = active ? state.status.detail : connection?.notes || '点击连接，加载服务器页面。';
-  button('state-connect').hidden = phase === 'loaded' || phase === 'loading';
-  element('no-devices').hidden = state.connections.length > 0;
-  devices();
-  list();
-  const saved = current.connections.find(connection => connection.id === editing);
-  if (saved && editor.open) {
-    element('password-status').textContent = saved.savedPassword ? '密码已加密保存' : '未在磁盘记住密码';
-    element('certificate-status').textContent = saved.certificateTrusted ? '已固定信任一个服务器证书' : '使用系统证书验证';
-    button('revoke-certificate').disabled = !saved.certificateTrusted;
-  }
-  prompts();
+function preview(connection: Entry, holder: HTMLElement) {
+  const show = (url: string) => {
+    const image = document.createElement('img');
+    image.alt = '';
+    image.src = url;
+    holder.replaceChildren(image);
+  };
+  holder.replaceChildren(icon('monitor', 36));
+  if (!connection.thumbnail) { previews.delete(connection.id); return; }
+  const cached = previews.get(connection.id);
+  if (cached?.stamp === connection.thumbnail) { show(cached.url); return; }
+  void window.desk.invoke({ type: 'thumbnail', id: connection.id }).then(result => {
+    if (!result.ok || !result.text) return;
+    previews.set(connection.id, { stamp: connection.thumbnail, url: result.text });
+    if (holder.isConnected) show(result.text);
+  });
 }
 function devices() {
   const container = element('devices');
   container.replaceChildren();
   const search = input('search').value.trim().toLocaleLowerCase();
-  for (const connection of current.connections.filter(connection => `${connection.name} ${connection.url} ${connection.group} ${connection.notes}`.toLocaleLowerCase().includes(search))) {
+  const visible = current.connections.filter(connection => matches(connection, search));
+  for (const connection of visible) {
     const card = document.createElement('article');
     card.className = 'device-card';
-    const preview = document.createElement('button');
-    preview.className = 'device-preview';
-    preview.setAttribute('aria-label', `连接 ${connection.name}`);
-    const monitor = document.createElement('span');
-    monitor.className = 'device-monitor';
-    monitor.setAttribute('aria-hidden', 'true');
-    monitor.textContent = '▣';
-    const group = document.createElement('span');
-    group.textContent = connection.group || '未分组';
-    preview.append(monitor, group);
-    preview.onclick = () => { selected = connection.id; void invoke({ type: 'connect', id: connection.id }); };
+    const open = document.createElement('button');
+    open.className = 'device-preview';
+    open.setAttribute('aria-label', t('ui.connectTo', { name: connection.name }));
+    open.title = connection.url;
+    preview(connection, open);
+    open.onclick = () => connect(connection.id);
     const details = document.createElement('div');
     details.className = 'device-details';
     const copy = document.createElement('div');
     const name = document.createElement('strong');
     name.textContent = connection.name;
     const address = document.createElement('small');
-    address.textContent = new URL(connection.url).host;
+    address.textContent = [new URL(connection.url).host, connection.group].filter(Boolean).join(' · ');
     copy.append(name, address);
     const edit = document.createElement('button');
-    edit.className = 'device-edit';
-    edit.textContent = '···';
-    edit.setAttribute('aria-label', `编辑 ${connection.name}`);
+    edit.className = 'icon-button';
+    edit.append(icon('more', 18));
+    edit.setAttribute('aria-label', t('ui.edit', { name: connection.name }));
     edit.onclick = () => { selected = connection.id; void openEditor(connection); };
     details.append(copy, edit);
-    card.append(preview, details);
+    card.append(open, details);
     container.append(card);
   }
+  element('count').textContent = String(current.connections.length);
+  element('version').textContent = current.version;
+  element('no-devices').hidden = current.connections.length > 0;
+  element('no-match').hidden = !current.connections.length || visible.length > 0;
+}
+function shortcutRows() {
+  const container = element('shortcut-list');
+  container.replaceChildren();
+  for (const command of commands) {
+    const row = document.createElement('div');
+    row.className = `shortcut-row${recording === command ? ' recording' : ''}`;
+    const name = document.createElement('span');
+    name.textContent = t(`command.${command}`);
+    const keys = document.createElement('kbd');
+    keys.textContent = recording === command ? t('settings.recording') : current.shortcutLabels[command];
+    const change = document.createElement('button');
+    change.textContent = t('settings.record');
+    change.setAttribute('aria-label', `${t('settings.record')} ${t(`command.${command}`)}`);
+    change.onclick = () => { void record(command); };
+    const reset = document.createElement('button');
+    reset.textContent = t('settings.reset');
+    reset.setAttribute('aria-label', `${t('settings.reset')} ${t(`command.${command}`)}`);
+    reset.disabled = !current.settings.shortcuts[command];
+    reset.onclick = () => { void saveShortcut(command, null); };
+    row.append(name, keys, change, reset);
+    container.append(row);
+  }
+}
+async function record(command: Command | undefined) {
+  recording = command;
+  element('shortcut-error').textContent = '';
+  await window.desk.invoke({ type: 'recording', active: !!command });
+  shortcutRows();
+}
+async function saveShortcut(command: Command, accelerator: string | null) {
+  const result = await window.desk.invoke({ type: 'shortcut', command, accelerator });
+  await record(undefined);
+  if (result.state) render(result.state);
+  element('shortcut-error').textContent = result.ok ? '' : result.error || t('error.failed');
+}
+function settingsForm() {
+  element<HTMLSelectElement>('set-language').value = current.settings.language;
+  element<HTMLSelectElement>('set-theme').value = current.settings.theme;
+  for (const name of toggles) input(`set-${name}`).checked = current.settings[name];
+  element('build').textContent = t('settings.version', { version: current.version });
+  shortcutRows();
+}
+function switcherItems() {
+  const search = input('switcher-input').value.trim().toLocaleLowerCase();
+  return current.connections.filter(connection => matches(connection, search)).slice(0, 50);
+}
+function switcherList() {
+  const container = element('switcher-list');
+  container.replaceChildren();
+  const items = switcherItems();
+  switcherIndex = Math.max(0, Math.min(switcherIndex, items.length - 1));
+  items.forEach((connection, index) => {
+    const row = document.createElement('button');
+    row.className = `switcher-item${index === switcherIndex ? ' current' : ''}`;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(index === switcherIndex));
+    const name = document.createElement('span');
+    name.textContent = connection.name;
+    const address = document.createElement('small');
+    address.textContent = new URL(connection.url).host;
+    row.append(name, address);
+    row.onclick = () => { void choose(connection.id); };
+    container.append(row);
+  });
+  container.querySelector('.current')?.scrollIntoView({ block: 'nearest' });
+}
+async function choose(id: string) {
+  await closeModal(switcher);
+  connect(id);
+}
+function render(state: AppState) {
+  current = state;
+  setLanguage(state.language);
+  if (shownLanguage !== state.language) {
+    shownLanguage = state.language;
+    translate();
+  }
+  if (state.status.id === pending) pending = undefined;
+  if (!pending && state.status.id && state.connections.some(connection => connection.id === state.status.id)) selected = state.status.id;
+  if (selected && !state.connections.some(connection => connection.id === selected)) selected = undefined;
+  const connection = selection();
+  const active = connection?.id === state.status.id;
+  const phase = active ? state.status.phase : 'idle';
+  const onDesktop = active && ['loading', 'loaded'].includes(phase);
+  const keys = state.shortcutLabels;
+  document.body.classList.toggle('sidebar-hidden', !state.layout.sidebar);
+  document.body.classList.toggle('toolbar-hidden', !state.layout.toolbar);
+  document.body.classList.toggle('titlebar', state.platform.integratedTitleBar);
+  document.body.classList.toggle('fullscreen', state.fullscreen);
+  document.body.classList.toggle('home-visible', !onDesktop);
+  element('title').textContent = connection?.name || 'Selkies Desk';
+  element('address').textContent = connection?.url || '';
+  element('strip-title').textContent = connection?.name || 'Selkies Desk';
+  element('status').textContent = t(`status.${phase}`);
+  element('status-dot').className = phase;
+  const sidebarLabel = t(state.layout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar');
+  button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
+  button('toggle-sidebar').title = `${sidebarLabel} · ${keys.sidebar}`;
+  button('settings').disabled = !connection;
+  button('connect').disabled = !connection || ['loading', 'loaded', 'waiting'].includes(phase);
+  button('disconnect').disabled = !active || !['loading', 'loaded', 'failed', 'waiting'].includes(phase);
+  button('reconnect').disabled = !connection;
+  button('reconnect').title = `${t('ui.reconnect')} · ${keys.reconnect}`;
+  const fullscreenLabel = t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen');
+  button('fullscreen').setAttribute('aria-label', fullscreenLabel);
+  button('fullscreen').title = `${fullscreenLabel} · ${keys.fullscreen}`;
+  button('focus').title = t('ui.focus');
+  button('toggle-toolbar').title = `${t('ui.hideToolbar')} · ${keys.toolbar}`;
+  renderToolbarIcons(state.fullscreen, state.layout.sidebar);
+  element('home').hidden = onDesktop;
+  element('connection-state').hidden = !['failed', 'loading', 'waiting', 'disconnected'].includes(phase);
+  element('state-title').textContent = t(`stateTitle.${phase}`);
+  element('state-detail').textContent = active ? state.status.detail : '';
+  button('state-connect').hidden = phase === 'loading';
+  button('state-connect').textContent = t(phase === 'waiting' ? 'ui.reconnectNow' : 'ui.connectThis');
+  button('state-stop').hidden = phase !== 'waiting';
+  devices();
+  list();
+  const saved = current.connections.find(connection => connection.id === editing);
+  if (saved && editor.open) {
+    element('password-status').textContent = t(saved.savedPassword ? 'editor.passwordSaved' : 'editor.passwordNone');
+    element('certificate-status').textContent = t(saved.certificateTrusted ? 'editor.certPinned' : 'editor.certSystem');
+    button('clear-password').disabled = !saved.savedPassword;
+    button('revoke-certificate').disabled = !saved.certificateTrusted;
+  }
+  if (settingsDialog.open) settingsForm();
+  if (switcher.open) switcherList();
+  prompts();
+}
+/** Encrypted storage can become available after the dialog is already open, so this runs on every update. */
+function storageNote() {
+  const prompt = current.prompt;
+  if (prompt?.type !== 'auth') return;
+  input('remember').disabled = !current.encryptionAvailable;
+  if (!current.encryptionAvailable) input('remember').checked = false;
+  const notes = [current.encryptionAvailable ? t(`storage.${current.platform.os}`) : t('auth.unavailable')];
+  if (prompt.origin.startsWith('http:')) notes.push(t('auth.http'));
+  element('encryption-note').textContent = notes.join(' ');
 }
 function prompts() {
   const prompt = current.prompt;
@@ -176,7 +310,7 @@ function prompts() {
     shownPrompt = undefined;
     return;
   }
-  if (shownPrompt === prompt.token) return;
+  if (shownPrompt === prompt.token) { storageNote(); return; }
   authDialog.close();
   certificateDialog.close();
   shownPrompt = prompt.token;
@@ -186,42 +320,74 @@ function prompts() {
     input('auth-username').value = prompt.username || '';
     input('auth-password').value = '';
     input('remember').checked = false;
-    input('remember').disabled = !current.encryptionAvailable;
-    element('encryption-note').textContent = current.encryptionAvailable
-      ? current.platform.storageNote
-      : '加密存储不可用。密码仅用于本次会话，不会明文落盘。';
-    if (prompt.origin.startsWith('http:')) element('encryption-note').textContent += ' 当前为 HTTP，认证信息在网络中不加密。';
+    storageNote();
     authDialog.showModal();
     (prompt.username ? input('auth-password') : input('auth-username')).focus();
   } else {
     element('certificate-origin').textContent = prompt.origin;
     element('certificate-fingerprint').textContent = prompt.fingerprint || '';
-    element('certificate-names').textContent = `${prompt.subject || '未知'} / ${prompt.issuer || '未知'}`;
-    element('certificate-error').textContent = `${prompt.error} / ${prompt.validExpiry ? new Date(prompt.validExpiry * 1000).toLocaleString('zh-CN') : '未知'}`;
+    element('certificate-names').textContent = `${prompt.subject || t('cert.unknown')} / ${prompt.issuer || t('cert.unknown')}`;
+    const expiry = prompt.validExpiry ? new Date(prompt.validExpiry * 1000).toLocaleString(current.language === 'zh' ? 'zh-CN' : 'en') : t('cert.unknown');
+    element('certificate-error').textContent = `${prompt.error} / ${expiry}`;
     certificateDialog.showModal();
   }
 }
+/** Dialogs live in the management page, so the remote desktop is hidden while one is open. */
+async function openModal(dialog: HTMLDialogElement) {
+  if (current.prompt || dialog.open) return false;
+  for (const other of [editor, deleteDialog, settingsDialog, switcher]) if (other.open) other.close();
+  await invoke({ type: 'modal', open: true });
+  dialog.showModal();
+  return true;
+}
+async function closeModal(dialog: HTMLDialogElement) {
+  dialog.close();
+  recording = undefined;
+  await invoke({ type: 'modal', open: false });
+}
 async function openEditor(connection?: Connection) {
   editing = connection?.id;
-  await invoke({ type: 'modal', open: true });
+  if (!await openModal(editor)) return;
   form.reset();
   for (const name of ['name', 'url', 'group', 'username', 'notes'] as const) field(name).value = connection?.[name] || '';
-  element('editor-title').textContent = connection ? '编辑连接' : '新增连接';
+  field('fullscreen').checked = !!connection?.fullscreen;
+  field('autoConnect').checked = !!connection?.autoConnect;
+  element('editor-title').textContent = t(connection ? 'editor.edit' : 'editor.new');
   element('security-settings').hidden = !connection;
   button('delete').hidden = !connection;
   element('form-error').textContent = '';
   element('http-warning').hidden = !field('url').value.startsWith('http:');
-  editor.showModal();
   render(current);
   field('name').focus();
 }
 async function closeEditor() {
-  editor.close();
   deleteDialog.close();
   editing = undefined;
-  await invoke({ type: 'modal', open: false });
+  await closeModal(editor);
 }
-button('new').onclick = button('empty-new').onclick = () => { void openEditor(); };
+/** Settings are split into panes; only one is on screen at a time. */
+function showPane(name: string) {
+  for (const tab of settingsDialog.querySelectorAll<HTMLElement>('[role=tab]')) tab.setAttribute('aria-selected', String(tab.dataset.pane === name));
+  for (const pane of settingsDialog.querySelectorAll<HTMLElement>('[role=tabpanel]')) pane.hidden = pane.dataset.pane !== name;
+  if (recording) void record(undefined);
+}
+for (const tab of settingsDialog.querySelectorAll<HTMLElement>('[role=tab]')) tab.onclick = () => showPane(tab.dataset.pane!);
+async function openSettings() {
+  if (!await openModal(settingsDialog)) return;
+  element('shortcut-error').textContent = '';
+  showPane('general');
+  settingsForm();
+}
+async function openSwitcher() {
+  if (!current.connections.length || !await openModal(switcher)) return;
+  input('switcher-input').value = '';
+  switcherIndex = Math.max(0, current.connections.findIndex(connection => connection.id !== current.status.id));
+  switcherList();
+  input('switcher-input').focus();
+}
+
+for (const id of ['new', 'empty-new']) button(id).onclick = () => { void openEditor(); };
+button('open-settings').onclick = () => { void openSettings(); };
 button('settings').onclick = () => { if (selection()) void openEditor(selection()); };
 button('editor-cancel').onclick = () => { void closeEditor(); };
 editor.oncancel = event => { event.preventDefault(); void closeEditor(); };
@@ -229,15 +395,16 @@ field('url').oninput = () => { element('http-warning').hidden = !field('url').va
 input('search').oninput = () => { list(); devices(); };
 form.onsubmit = async event => {
   event.preventDefault();
-  const connection = Object.fromEntries(new FormData(form)) as Record<string, string>;
-  const result = await invoke({ type: 'save', connection: { ...connection, ...(editing ? { id: editing } : {}) } as Connection });
-  if (!result.ok) { element('form-error').textContent = result.error || '保存失败'; return; }
+  const text = Object.fromEntries(['name', 'url', 'group', 'username', 'notes'].map(name => [name, field(name).value]));
+  const connection = { ...text, fullscreen: field('fullscreen').checked, autoConnect: field('autoConnect').checked, ...(editing ? { id: editing } : {}) };
+  const result = await invoke({ type: 'save', connection: connection as Connection });
+  if (!result.ok) { element('form-error').textContent = result.error || t('editor.saveFailed'); return; }
   selected = result.id;
   await closeEditor();
   render(current);
 };
 button('delete').onclick = () => {
-  element('delete-name').textContent = `即将删除“${selection()?.name || field('name').value}”。`;
+  element('delete-name').textContent = t('delete.body', { name: selection()?.name || field('name').value });
   editor.close();
   deleteDialog.showModal();
 };
@@ -249,17 +416,52 @@ button('delete-confirm').onclick = async () => {
     if (result.ok) await closeEditor();
   }
 };
-button('clear-password').onclick = () => { if (editing) void invoke({ type: 'clearPassword', id: editing }).then(result => { if (result.ok) toast('已清除保存的密码及 HTTP 认证缓存。'); }); };
-button('revoke-certificate').onclick = () => { if (editing) void invoke({ type: 'revokeCertificate', id: editing }).then(result => { if (result.ok) toast('已撤销信任；下次连接将重新验证证书。'); }); };
-button('connect').onclick = button('state-connect').onclick = () => { if (selected) void invoke({ type: 'connect', id: selected }); };
-button('disconnect').onclick = () => { void invoke({ type: 'disconnect' }); };
-button('reconnect').onclick = () => { if (selected) void invoke({ type: 'connect', id: selected }); };
+button('clear-password').onclick = () => { if (editing) void invoke({ type: 'clearPassword', id: editing }).then(result => { if (result.ok) toast(t('editor.passwordCleared')); }); };
+button('revoke-certificate').onclick = () => { if (editing) void invoke({ type: 'revokeCertificate', id: editing }).then(result => { if (result.ok) toast(t('editor.revoked')); }); };
+button('connect').onclick = button('state-connect').onclick = () => { if (selected) connect(selected); };
+button('disconnect').onclick = button('state-stop').onclick = () => { void invoke({ type: 'disconnect' }); };
+button('reconnect').onclick = () => { if (selected) connect(selected); };
 button('fullscreen').onclick = () => { void invoke({ type: 'fullscreen' }); };
 button('toggle-sidebar').onclick = () => { void invoke({ type: 'layout', target: 'sidebar' }); };
 button('toggle-toolbar').onclick = () => { void invoke({ type: 'layout', target: 'toolbar' }); };
 button('focus').onclick = () => { void invoke({ type: 'layout', target: 'focus' }); };
 button('import').onclick = () => { void invoke({ type: 'import' }); };
 button('export').onclick = () => { void invoke({ type: 'export' }); };
+
+button('settings-close').onclick = () => { void closeModal(settingsDialog); };
+settingsDialog.oncancel = event => {
+  event.preventDefault();
+  if (recording) void record(undefined);
+  else void closeModal(settingsDialog);
+};
+element<HTMLSelectElement>('set-language').onchange = event => { void invoke({ type: 'settings', settings: { language: (event.target as HTMLSelectElement).value as AppState['settings']['language'] } }); };
+element<HTMLSelectElement>('set-theme').onchange = event => { void invoke({ type: 'settings', settings: { theme: (event.target as HTMLSelectElement).value as AppState['settings']['theme'] } }); };
+for (const name of toggles) input(`set-${name}`).onchange = () => { void invoke({ type: 'settings', settings: { [name]: input(`set-${name}`).checked } }); };
+// While recording, the next complete key combination becomes the shortcut.
+// Listening on the document keeps this working after the clicked button is re-rendered and loses focus.
+document.addEventListener('keydown', event => {
+  if (!recording) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === 'Escape') { void record(undefined); return; }
+  const accelerator = acceleratorFromInput({ code: event.code, control: event.ctrlKey, meta: event.metaKey, alt: event.altKey, shift: event.shiftKey });
+  if (accelerator) void saveShortcut(recording, accelerator);
+}, true);
+
+switcher.oncancel = event => { event.preventDefault(); void closeModal(switcher); };
+input('switcher-input').oninput = () => { switcherIndex = 0; switcherList(); };
+input('switcher-input').onkeydown = event => {
+  const items = switcherItems();
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (items.length) switcherIndex = (switcherIndex + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+    switcherList();
+  } else if (event.key === 'Enter' && items[switcherIndex]) {
+    event.preventDefault();
+    void choose(items[switcherIndex].id);
+  }
+};
+
 element<HTMLFormElement>('auth-form').onsubmit = async event => {
   event.preventDefault();
   if (!current.prompt) return;
@@ -277,10 +479,12 @@ authDialog.oncancel = event => { event.preventDefault(); answer(false); };
 button('certificate-accept').onclick = () => answer(true);
 button('certificate-deny').onclick = () => answer(false);
 certificateDialog.oncancel = event => { event.preventDefault(); answer(false); };
+renderStaticIcons();
 window.desk.onState(render);
 window.desk.onCommand(command => {
-  if (command === 'new' && !current.prompt) void openEditor();
-  else if (command === 'search') input('search').focus();
-  else if (command.endsWith('Error')) toast('配置操作失败，请检查 JSON 版本、字段与文件权限。');
+  if (command === 'new') void openEditor();
+  else if (command === 'settings') void openSettings();
+  else if (command === 'switcher') void openSwitcher();
+  else if (command.endsWith('Error')) toast(t('error.config'));
 });
 void invoke({ type: 'state' });

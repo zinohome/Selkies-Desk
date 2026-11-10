@@ -1,13 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseConnection, parseImport, Store, matchesOrigin, matchesNetworkOrigin, trustedCertificate } from '../src/model';
+import { parseConnection, parseImport, settingsPatchSchema, Store, matchesOrigin, matchesNetworkOrigin, trustedCertificate } from '../src/model';
 import { Vault } from '../src/vault';
 import { Permissions } from '../src/permissions';
-import { desktopBounds } from '../src/layout';
-import { platformInfo, trustedStorage } from '../src/platform';
+import { controlsBounds, desktopBounds, effectiveLayout, fullscreenRevealZone } from '../src/layout';
+import { acceleratorFromInput, defaultShortcuts, effectiveShortcuts, matchShortcut, shortcutLabel, trustedStorage, validShortcut } from '../src/platform';
+import { retryable, retryDelay } from '../src/retry';
+import { dictionary, messageKeys, resolveLanguage, setLanguage, t } from '../src/i18n';
 
 const input = { name: '工作台', url: 'https://example.test:8443', group: '开发', notes: '', username: 'alice' };
 
@@ -188,6 +190,9 @@ test('侧栏和工具栏分别收起后，远端获得全部释放的真实视�
   assert.deepEqual(desktopBounds(1280, 800, { sidebar: false, toolbar: true }), { x: 0, y: 52, width: 1280, height: 748 });
   assert.deepEqual(desktopBounds(1280, 800, { sidebar: true, toolbar: false }), { x: 232, y: 0, width: 1048, height: 800 });
   assert.deepEqual(desktopBounds(1280, 800, { sidebar: false, toolbar: false }), { x: 0, y: 0, width: 1280, height: 800 });
+  // Where the app draws its own title bar, a 28 px drag strip stays above the desktop in windowed focus mode.
+  assert.deepEqual(desktopBounds(1280, 800, { sidebar: false, toolbar: false }, 28), { x: 0, y: 28, width: 1280, height: 772 });
+  assert.deepEqual(desktopBounds(1280, 800, { sidebar: false, toolbar: true }, 28), { x: 0, y: 52, width: 1280, height: 748 });
 });
 
 test('布局选择在重启后恢复，配置导出不包含本机布局偏好', () => {
@@ -201,20 +206,106 @@ test('布局选择在重启后恢复，配置导出不包含本机布局偏好',
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('各系统的管理快捷键带 Alt 修饰且互不重复，Windows 和 Linux 避开 Ubuntu 的终端快捷键', () => {
-  for (const platform of ['darwin', 'win32', 'linux']) {
-    const info = platformInfo(platform);
-    const accelerators = Object.values(info.accelerators);
+test('各系统默认快捷键互不重复，避开 Ubuntu 终端快捷键，并按系统显示', () => {
+  for (const os of ['mac', 'windows', 'linux'] as const) {
+    const accelerators = Object.values(defaultShortcuts(os));
     assert.equal(new Set(accelerators).size, accelerators.length);
-    for (const accelerator of accelerators) assert.match(accelerator, platform === 'darwin' ? /^Command\+Alt\+\w+$/ : /^Control\+Alt\+\w+$/);
+    for (const accelerator of accelerators) assert.equal(validShortcut(accelerator), true, accelerator);
     assert.equal(accelerators.includes('Control+Alt+T'), false);
-    assert.equal(accelerators.includes('Control+Alt+Delete'), false);
   }
-  assert.equal(platformInfo('darwin').labels.toolbar, '⌘⌥T');
-  assert.equal(platformInfo('win32').labels.toolbar, 'Ctrl+Alt+H');
-  assert.equal(platformInfo('linux').labels.fullscreen, 'F11');
-  assert.match(platformInfo('win32').storageNote, /DPAPI/);
-  assert.doesNotMatch(platformInfo('linux').storageNote, /Keychain|DPAPI/);
+  assert.equal(shortcutLabel('mac', defaultShortcuts('mac').toolbar), '⌘⌥T');
+  assert.equal(shortcutLabel('mac', defaultShortcuts('mac').fullscreen), '⌃⌘F');
+  assert.equal(shortcutLabel('windows', defaultShortcuts('windows').toolbar), 'Ctrl+Alt+H');
+  assert.equal(shortcutLabel('linux', defaultShortcuts('linux').fullscreen), 'F11');
+});
+
+test('按物理按键匹配快捷键：Option 改变字符时仍能识别，普通输入不被拦截', () => {
+  const keys = defaultShortcuts('mac');
+  // On macOS Option+B types “∫”; matching uses the physical key code instead.
+  assert.equal(matchShortcut({ code: 'KeyB', meta: true, alt: true }, keys), 'sidebar');
+  assert.equal(matchShortcut({ code: 'Enter', meta: true, alt: true }, keys), 'focus');
+  assert.equal(matchShortcut({ code: 'KeyF', control: true, meta: true }, keys), 'fullscreen');
+  assert.equal(matchShortcut({ code: 'KeyB', meta: true }, keys), undefined);
+  assert.equal(matchShortcut({ code: 'KeyB', meta: true, alt: true, shift: true }, keys), undefined);
+  assert.equal(matchShortcut({ code: 'KeyB' }, keys), undefined);
+  assert.equal(matchShortcut({ code: 'AltLeft', alt: true, meta: true }, keys), undefined);
+  assert.equal(matchShortcut({ code: 'F11' }, defaultShortcuts('linux')), 'fullscreen');
+});
+
+test('自定义快捷键必须带修饰键或为功能键；无效覆盖回落到默认值', () => {
+  assert.equal(acceleratorFromInput({ code: 'KeyJ', control: true, shift: true }), 'Control+Shift+J');
+  assert.equal(acceleratorFromInput({ code: 'ShiftLeft', shift: true }), undefined);
+  for (const valid of ['Control+Shift+J', 'Alt+1', 'F9', 'Command+Alt+,']) assert.equal(validShortcut(valid), true, valid);
+  for (const invalid of ['J', 'Shift+J', 'Control+', 'Control+Control+J', 'Hyper+J', 'Control+Escape']) assert.equal(validShortcut(invalid), false, invalid);
+  const keys = effectiveShortcuts('windows', { sidebar: 'Control+Shift+J', toolbar: 'J' });
+  assert.equal(keys.sidebar, 'Control+Shift+J');
+  assert.equal(keys.toolbar, defaultShortcuts('windows').toolbar);
+});
+
+test('中英文词条一一对应，占位符一致；语言跟随系统或手动指定', () => {
+  for (const key of messageKeys) {
+    const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort().join();
+    assert.ok(dictionary('en')[key], key);
+    assert.equal(placeholders(dictionary('en')[key]), placeholders(dictionary('zh')[key]), key);
+  }
+  assert.equal(resolveLanguage('system', 'zh-CN'), 'zh');
+  assert.equal(resolveLanguage('system', 'zh-TW'), 'zh');
+  assert.equal(resolveLanguage('system', 'en-US'), 'en');
+  assert.equal(resolveLanguage('system', 'de'), 'en');
+  assert.equal(resolveLanguage('en', 'zh-CN'), 'en');
+  setLanguage('en');
+  try { assert.equal(t('import.confirmMessage', { count: 3 }), 'Add 3 entries as new connections?'); } finally { setLanguage('zh'); }
+  assert.equal(t('import.confirmMessage', { count: 3 }), '将 3 个条目作为新连接添加？');
+});
+
+test('设置有默认值并持久化，不随连接配置导出；旧配置文件可直接读取', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
+  try {
+    const store = new Store(directory);
+    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, thumbnails: true, passSystemKeys: false, shortcuts: {} });
+    store.setSettings({ theme: 'dark', language: 'en', shortcuts: { sidebar: 'Control+Shift+J' } });
+    const reopened = new Store(directory);
+    assert.equal(reopened.settings.theme, 'dark');
+    assert.equal(reopened.settings.language, 'en');
+    assert.equal(reopened.settings.shortcuts.sidebar, 'Control+Shift+J');
+    assert.equal(store.export().includes('theme'), false);
+    assert.throws(() => store.setSettings({ theme: 'sepia' as never }));
+    // Changing one setting must leave the others alone.
+    assert.deepEqual(settingsPatchSchema.parse({ theme: 'light' }), { theme: 'light' });
+    store.setSettings({ autoFocus: false });
+    store.setSettings(settingsPatchSchema.parse({ theme: 'light' }));
+    assert.equal(store.settings.autoFocus, false);
+    assert.throws(() => settingsPatchSchema.parse({ shortcuts: {} }));
+    // A 0.3.0 file has neither settings nor the per-connection options.
+    writeFileSync(join(directory, 'connections.json'), JSON.stringify({
+      version: 1, certificates: {}, layout: { sidebar: true, toolbar: true },
+      connections: [{ id: '6f1f3a52-7f0e-4c58-9d55-0d4a1c6f2b11', name: '旧连接', url: 'https://old.test:8443/', group: '', notes: '', username: '' }]
+    }));
+    const old = new Store(directory);
+    assert.equal(old.settings.autoFocus, true);
+    assert.deepEqual([old.connections[0].fullscreen, old.connections[0].autoConnect], [false, false]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('启动时自动连接只能指定一个连接，导入的条目不继承该选项', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-auto-'));
+  try {
+    const store = new Store(directory);
+    const first = store.save({ ...input, name: '甲', autoConnect: true });
+    const second = store.save({ ...input, name: '乙', autoConnect: true, fullscreen: true });
+    assert.equal(store.get(first.id).autoConnect, false);
+    assert.equal(store.get(second.id).autoConnect, true);
+    assert.equal(store.get(second.id).fullscreen, true);
+    const added = store.import(parseImport(store.export()));
+    assert.equal(added.some(connection => connection.autoConnect), false);
+    assert.equal(store.connections.filter(connection => connection.autoConnect).length, 1);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('自动重连只针对网络类错误，等待时间逐次加长并封顶', () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map(retryDelay), [2, 4, 8, 16, 30, 30]);
+  // Connection refused and network changes are retried; certificate errors and aborts are not.
+  assert.deepEqual([-102, -106, -21, -202, -3, -501].map(retryable), [true, true, true, false, false, false]);
 });
 
 test('Linux 没有系统密钥环时不把密码写入磁盘，其他系统沿用系统加密', async () => {
@@ -238,4 +329,22 @@ test('Linux 没有系统密钥环时不把密码写入磁盘，其他系统沿�
     assert.equal(readFileSync(join(directory, 'credentials.enc.json'), 'utf8').includes('fixture-pass'), false);
     assert.equal((await vault.get(connection))?.password, 'fixture-pass');
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('macOS 全屏时不显示顶部工具栏，会话操作条展开后悬在系统菜单栏遮挡区之下', () => {
+  // The saved preference is untouched; only what is drawn changes.
+  const preferred = { sidebar: true, toolbar: true };
+  assert.deepEqual(effectiveLayout(preferred, true), { sidebar: true, toolbar: false });
+  assert.deepEqual(effectiveLayout(preferred, false), preferred);
+  assert.deepEqual(preferred, { sidebar: true, toolbar: true });
+  const desktop = desktopBounds(1440, 900, effectiveLayout(preferred, true));
+  assert.deepEqual(desktop, { x: 232, y: 0, width: 1208, height: 900 });
+  // Collapsed: a 64 px handle on the top edge. Expanded: buttons start below the reveal zone.
+  assert.deepEqual(controlsBounds(desktop, false, fullscreenRevealZone), { x: 232 + 572, y: 0, width: 64, height: 22 });
+  const expanded = controlsBounds(desktop, true, fullscreenRevealZone);
+  assert.equal(expanded.height - 48, fullscreenRevealZone);
+  assert.ok(fullscreenRevealZone >= 52, 'must clear a 24 px menu bar plus a 28 px title strip');
+  // In a window nothing covers the top edge, so the buttons hang directly from it.
+  assert.deepEqual(controlsBounds(desktop, true, 0), { x: 232 + 224, y: 0, width: 760, height: 48 });
+  assert.equal(controlsBounds({ x: 0, width: 500 }, true, 0).width, 500);
 });

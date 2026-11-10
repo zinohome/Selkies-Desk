@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, safeStorage, session, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, type Event, type Input, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,12 +7,16 @@ import { Store, matchesOrigin, parseImport } from './model';
 import { Vault } from './vault';
 import { Remote } from './remote';
 import { actionSchema, type Action, type AppState, type Result } from './protocol';
-import { defaultLayout, desktopBounds } from './layout';
-import { platformInfo, trustedStorage } from './platform';
+import { controlsBounds, defaultLayout, desktopBounds, effectiveLayout, fullscreenRevealZone, homeLayout, stripHeight } from './layout';
+import { commands, effectiveShortcuts, matchShortcut, osOf, platformName, shortcutLabel, trustedStorage, validShortcut, type Command, type Shortcuts } from './platform';
+import { resolveLanguage, setLanguage, language, t } from './i18n';
+import { Thumbnails } from './thumbnails';
 
 app.setName('Selkies Desk');
-const platform = platformInfo(process.platform);
-if (platform.os === 'windows') app.setAppUserModelId('local.selkies.desk');
+const os = osOf(process.platform);
+// macOS lets the toolbar double as the title bar. Windows and Linux keep the native frame until that is tested there.
+const integratedTitleBar = os === 'mac';
+if (os === 'windows') app.setAppUserModelId('local.selkies.desk');
 const explicitProfile = app.commandLine.getSwitchValue('user-data-dir');
 if (explicitProfile && isAbsolute(explicitProfile)) app.setPath('userData', explicitProfile);
 const locked = app.requestSingleInstanceLock();
@@ -26,20 +30,40 @@ let quitting = false;
 let transitions = Promise.resolve();
 let controls: WebContentsView;
 let controlsExpanded = false;
+let thumbnails: Thumbnails;
+let recording = false;
+let buttonPosition = '';
 const uiURL = pathToFileURL(join(__dirname, 'ui/index.html')).href;
 const controlsURL = pathToFileURL(join(__dirname, 'ui/controls.html')).href;
 const controlActions = new Set(['state', 'layout', 'controls', 'fullscreen', 'reconnect', 'disconnect']);
 
+const settings = () => store.settings;
+const shortcuts = () => effectiveShortcuts(os, settings().shortcuts);
+/** Space kept above the desktop for the drag strip when the toolbar is hidden. */
+const strip = () => integratedTitleBar && !window.isFullScreen() ? stripHeight : 0;
+const macFullscreen = () => os === 'mac' && window.isFullScreen();
+/** Layout actually on screen: the saved preference, except that macOS full screen never shows the toolbar. */
+const layout = () => effectiveLayout(store.layout, macFullscreen());
+const controlsInset = () => macFullscreen() ? fullscreenRevealZone : 0;
+function applyLanguage() { setLanguage(resolveLanguage(settings().language, app.getLocale())); }
+function applyTheme() {
+  nativeTheme.themeSource = settings().theme;
+  if (window && !window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1b1c1f' : '#f5f5f7');
+}
 function state(): AppState {
+  const keys = shortcuts();
+  const showThumbnails = settings().thumbnails;
   return {
     connections: store.connections.map(connection => ({
-      ...connection, savedPassword: vault.hasSaved(connection.id), certificateTrusted: !!store.certificate(connection.id)
+      ...connection, savedPassword: vault.hasSaved(connection.id), certificateTrusted: !!store.certificate(connection.id),
+      thumbnail: showThumbnails ? thumbnails.stamp(connection.id) : 0
     })),
     status: remote.status, prompt: remote.prompt,
     fullscreen: window.isFullScreen(), encryptionAvailable,
-    layout: remote.visible ? store.layout : defaultLayout, preferredLayout: store.layout, controlsExpanded,
-    platform: { os: platform.os, name: platform.name, labels: platform.labels, storageNote: platform.storageNote },
-    version: app.getVersion()
+    layout: remote.visible ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(),
+    platform: { os, name: platformName(os), integratedTitleBar },
+    version: app.getVersion(), language: language(), settings: settings(), shortcuts: keys,
+    shortcutLabels: Object.fromEntries(commands.map(command => [command, shortcutLabel(os, keys[command])])) as Shortcuts
   };
 }
 function publish() {
@@ -49,7 +73,18 @@ function publish() {
       controls.webContents.send('desk:state', state());
       layoutControls();
     }
+    placeWindowButtons();
   }
+}
+/** Keeps the macOS window buttons centred in whichever bar is at the top: the 52 px toolbar or the 28 px strip. */
+function placeWindowButtons() {
+  if (!integratedTitleBar || window.isFullScreen()) return;
+  const slim = remote.visible && !layout().toolbar;
+  const position = slim ? { x: 10, y: 7 } : { x: 16, y: 19 };
+  const key = `${position.x},${position.y}`;
+  if (key === buttonPosition) return;
+  buttonPosition = key;
+  window.setWindowButtonPosition(position);
 }
 function trustedSender(event: IpcMainInvokeEvent) {
   return event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === uiURL;
@@ -58,13 +93,11 @@ function controlSender(event: IpcMainInvokeEvent) {
   return controls && event.sender === controls.webContents && event.senderFrame === controls.webContents.mainFrame && event.senderFrame.url === controlsURL;
 }
 function layoutControls() {
-  const visible = remote.visible && !store.layout.toolbar;
+  const visible = remote.visible && !layout().toolbar;
   controls.setVisible(visible);
   if (!visible) controlsExpanded = false;
   const [width, height] = window.getContentSize();
-  const desktop = desktopBounds(width, height, store.layout);
-  const panelWidth = controlsExpanded ? Math.min(660, desktop.width) : 64;
-  controls.setBounds({ x: desktop.x + Math.round((desktop.width - panelWidth) / 2), y: 0, width: panelWidth, height: controlsExpanded ? 48 : 22 });
+  controls.setBounds(controlsBounds(desktopBounds(width, height, layout(), strip()), controlsExpanded, controlsInset()));
   window.contentView.addChildView(controls);
 }
 function transition(action: () => Promise<void>) {
@@ -94,6 +127,7 @@ async function perform(action: Action): Promise<Result> {
         await remote.clearPassword(action.id);
         await session.fromPartition(`persist:selkies-${action.id}`).clearStorageData();
         store.delete(action.id);
+        thumbnails.remove(action.id);
         remote.forget(action.id);
       });
       publish();
@@ -105,7 +139,37 @@ async function perform(action: Action): Promise<Result> {
       if (id) await transition(() => remote.connect(id));
       break;
     }
-    case 'modal': remote.setModal(action.open); publish(); break;
+    case 'modal':
+      remote.setModal(action.open);
+      if (!action.open) recording = false;
+      publish();
+      break;
+    case 'settings': {
+      const hadThumbnails = settings().thumbnails;
+      store.setSettings(action.settings);
+      if (hadThumbnails && !settings().thumbnails) thumbnails.clear();
+      applyLanguage();
+      applyTheme();
+      menu();
+      remote.applyKeyPolicy();
+      publish();
+      break;
+    }
+    case 'shortcut': {
+      const overrides = { ...settings().shortcuts };
+      if (action.accelerator === null) delete overrides[action.command];
+      else if (!validShortcut(action.accelerator)) throw Error(t('shortcut.invalid'));
+      else overrides[action.command] = action.accelerator;
+      const next = effectiveShortcuts(os, overrides);
+      const clash = commands.find(command => command !== action.command && next[command] === next[action.command]);
+      if (clash) throw Error(t('shortcut.duplicate', { name: t(`command.${clash}`) }));
+      store.setSettings({ shortcuts: overrides });
+      menu();
+      publish();
+      break;
+    }
+    case 'recording': recording = action.active; break;
+    case 'thumbnail': return { ok: true, text: settings().thumbnails ? thumbnails.dataURL(action.id) : '' };
     case 'layout': {
       const layout = store.layout;
       if (action.target === 'restore') store.setLayout(defaultLayout);
@@ -128,100 +192,129 @@ async function perform(action: Action): Promise<Result> {
     case 'revokeCertificate': store.get(action.id); await transition(() => remote.revoke(action.id)); break;
     case 'export': {
       const chosen = await dialog.showSaveDialog(window, {
-        title: '导出连接配置（不含密码、Cookie 或证书信任）',
-        defaultPath: 'selkies-desk-connections.json', filters: [{ name: 'JSON 配置', extensions: ['json'] }]
+        title: t('export.title'),
+        defaultPath: 'selkies-desk-connections.json', filters: [{ name: t('export.filter'), extensions: ['json'] }]
       });
       if (!chosen.canceled && chosen.filePath) {
         writeFileSync(chosen.filePath, store.export(), { mode: 0o600 });
-        return { ok: true, message: '配置已导出，不含密码、Cookie 或证书信任。' };
+        return { ok: true, message: t('export.done') };
       }
       break;
     }
     case 'import': {
       const chosen = await dialog.showOpenDialog(window, {
-        title: '导入连接配置', properties: ['openFile'], filters: [{ name: 'JSON 配置', extensions: ['json'] }]
+        title: t('import.title'), properties: ['openFile'], filters: [{ name: t('export.filter'), extensions: ['json'] }]
       });
       if (chosen.canceled || !chosen.filePaths[0]) break;
-      if (statSync(chosen.filePaths[0]).size > 1024 * 1024) throw Error('配置文件不能大于 1 MB。');
+      if (statSync(chosen.filePaths[0]).size > 1024 * 1024) throw Error(t('import.tooLarge'));
       const data = parseImport(readFileSync(chosen.filePaths[0], 'utf8'));
       const confirm = await dialog.showMessageBox(window, {
-        type: 'question', title: '确认导入', message: `将 ${data.connections.length} 个条目作为新连接添加？`,
-        detail: '保留现有连接。重名条目加“导入”后缀；每个导入条目获得新的独立会话，不导入密码、Cookie 或证书信任。',
-        buttons: ['取消', '添加新连接'], defaultId: 0, cancelId: 0
+        type: 'question', title: t('import.confirmTitle'), message: t('import.confirmMessage', { count: data.connections.length }),
+        detail: t('import.confirmDetail'),
+        buttons: [t('ui.cancel'), t('import.add')], defaultId: 0, cancelId: 0
       });
       if (confirm.response === 1) {
         store.import(data);
         publish();
-        return { ok: true, state: state(), message: `已添加 ${data.connections.length} 个独立连接。` };
+        return { ok: true, state: state(), message: t('import.done', { count: data.connections.length }) };
       }
       break;
     }
   }
   return { ok: true, state: state() };
 }
+function manage(command: string) {
+  window.webContents.send('desk:command', command);
+  window.webContents.focus();
+}
+function run(command: Command) {
+  switch (command) {
+    case 'new': case 'switcher': case 'settings': manage(command); break;
+    case 'reconnect': void perform({ type: 'reconnect' }); break;
+    case 'sidebar': case 'toolbar': case 'focus': void perform({ type: 'layout', target: command }); break;
+    case 'fullscreen': window.setFullScreen(!window.isFullScreen()); break;
+  }
+}
+/**
+ * Management shortcuts are handled here, before any page sees the key. A remote
+ * desktop page captures every key press for the remote side, so menu
+ * accelerators alone never fire while it has focus.
+ */
+function intercept(event: Event, input: Input) {
+  if (recording || input.type !== 'keyDown') return;
+  const command = matchShortcut(input, shortcuts());
+  if (!command) return;
+  event.preventDefault();
+  if (!input.isAutoRepeat) run(command);
+}
 function menu() {
-  const manage = (command: string) => {
-    if (command === 'search') {
-      store.setLayout({ ...store.layout, sidebar: true });
-      remote.layout();
-      publish();
-    }
-    window.webContents.send('desk:command', command);
-    window.webContents.focus();
-  };
-  const keys = platform.accelerators;
-  const mac = platform.os === 'mac';
-  const manageItems: MenuItemConstructorOptions[] = [
-    { label: '新增连接…', accelerator: keys.new, click: () => manage('new') },
-    { label: '搜索连接', accelerator: keys.search, click: () => manage('search') }
-  ];
+  const keys = shortcuts();
+  const mac = os === 'mac';
+  const item = (command: Command, label: string): MenuItemConstructorOptions => ({ label, accelerator: keys[command], click: () => run(command) });
+  const manageItems: MenuItemConstructorOptions[] = [item('new', t('menu.new')), item('switcher', t('menu.switcher')), item('settings', t('menu.settings'))];
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     mac ? { label: 'Selkies Desk', submenu: [
-      { role: 'about', label: '关于 Selkies Desk' }, { type: 'separator' }, ...manageItems,
-      { type: 'separator' }, { role: 'hide', label: '隐藏 Selkies Desk' },
-      { role: 'hideOthers', label: '隐藏其他' }, { role: 'unhide', label: '显示全部' },
-      { type: 'separator' }, { role: 'quit', label: '退出 Selkies Desk' }
-    ] } : { label: '文件', submenu: [
-      ...manageItems, { type: 'separator' }, { role: 'about', label: '关于 Selkies Desk' },
-      { type: 'separator' }, { role: 'quit', label: '退出 Selkies Desk' }
+      { role: 'about', label: t('menu.about') }, { type: 'separator' }, ...manageItems,
+      { type: 'separator' }, { role: 'hide', label: t('menu.hide') },
+      { role: 'hideOthers', label: t('menu.hideOthers') }, { role: 'unhide', label: t('menu.unhide') },
+      { type: 'separator' }, { role: 'quit', label: t('menu.quit') }
+    ] } : { label: t('menu.file'), submenu: [
+      ...manageItems, { type: 'separator' }, { role: 'about', label: t('menu.about') },
+      { type: 'separator' }, { role: 'quit', label: t('menu.quit') }
     ] },
-    { label: '编辑', submenu: [
-      { role: 'undo', label: '撤销' }, { role: 'redo', label: '重做' }, { type: 'separator' },
-      { role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' }, { role: 'paste', label: '粘贴' },
-      { role: 'selectAll', label: '全选' }
+    { label: t('menu.edit'), submenu: [
+      { role: 'undo', label: t('menu.undo') }, { role: 'redo', label: t('menu.redo') }, { type: 'separator' },
+      { role: 'cut', label: t('menu.cut') }, { role: 'copy', label: t('menu.copy') }, { role: 'paste', label: t('menu.paste') },
+      { role: 'selectAll', label: t('menu.selectAll') }
     ] },
-    { label: '连接', submenu: [
-      { label: '重连当前服务器', accelerator: keys.reconnect, click: () => { void perform({ type: 'reconnect' }); } },
-      { label: '断开当前服务器', click: () => { void perform({ type: 'disconnect' }); } },
-      { type: 'separator' }, { label: '导入配置…', click: () => { void perform({ type: 'import' }).catch(() => manage('importError')); } },
-      { label: '导出配置…', click: () => { void perform({ type: 'export' }).catch(() => manage('exportError')); } }
+    { label: t('menu.connection'), submenu: [
+      item('reconnect', t('menu.reconnect')),
+      { label: t('menu.disconnect'), click: () => { void perform({ type: 'disconnect' }); } },
+      { type: 'separator' }, { label: t('menu.import'), click: () => { void perform({ type: 'import' }).catch(() => manage('importError')); } },
+      { label: t('menu.export'), click: () => { void perform({ type: 'export' }).catch(() => manage('exportError')); } }
     ] },
-    { label: '显示', submenu: [
-      { label: '显示或隐藏侧栏', accelerator: keys.sidebar, click: () => { void perform({ type: 'layout', target: 'sidebar' }); } },
-      { label: '显示或隐藏工具栏', accelerator: keys.toolbar, click: () => { void perform({ type: 'layout', target: 'toolbar' }); } },
-      { label: '切换专注模式', accelerator: keys.focus, click: () => { void perform({ type: 'layout', target: 'focus' }); } },
-      { label: '常规模式', click: () => { void perform({ type: 'layout', target: 'restore' }); } }
+    { label: t('menu.view'), submenu: [
+      item('sidebar', t('menu.sidebar')), item('toolbar', t('menu.toolbar')), item('focus', t('menu.focus')),
+      { label: t('menu.regular'), click: () => { void perform({ type: 'layout', target: 'restore' }); } },
+      { type: 'separator' }, item('fullscreen', t('menu.fullscreen'))
     ] },
-    { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, ...(mac ? [{ role: 'zoom', label: '缩放' } as MenuItemConstructorOptions] : []), { role: 'togglefullscreen', label: '切换全屏' }] }
+    { label: t('menu.window'), submenu: [{ role: 'minimize', label: t('menu.minimize') }, ...(mac ? [{ role: 'zoom', label: t('menu.zoom') } as MenuItemConstructorOptions] : [])] }
   ]));
 }
 async function start() {
   store = new Store(app.getPath('userData'));
+  thumbnails = new Thumbnails(app.getPath('userData'));
+  applyLanguage();
+  nativeTheme.themeSource = settings().theme;
   vault = new Vault(app.getPath('userData'), {
     isAsyncEncryptionAvailable: async () => trustedStorage(process.platform, await safeStorage.isAsyncEncryptionAvailable(), () => safeStorage.getSelectedStorageBackend()),
     encryptStringAsync: text => safeStorage.encryptStringAsync(text),
     decryptStringAsync: buffer => safeStorage.decryptStringAsync(buffer)
   });
-  encryptionAvailable = await vault.available();
+  // The first Keychain request from a newly signed build can wait on a system prompt.
+  // The window must not wait with it, so availability is filled in when it is known.
+  void vault.available().then(available => { encryptionAvailable = available; publish(); });
   window = new BrowserWindow({
     title: 'Selkies Desk', width: store.window?.width || 1280, height: store.window?.height || 820,
-    minWidth: 960, minHeight: 680, backgroundColor: '#f4f6f8', show: false,
+    minWidth: 960, minHeight: 680, backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1c1f' : '#f5f5f7', show: false,
+    ...(integratedTitleBar ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 19 } } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }
   });
   // Windows and Linux draw the menu bar inside the window. Keep it hidden so the
-  // remote desktop gets the space; accelerators and toolbar buttons stay available.
-  if (platform.os !== 'mac') window.setMenuBarVisibility(false);
-  remote = new Remote(window, store, vault, publish);
+  // remote desktop gets the space; shortcuts and toolbar buttons stay available.
+  if (os !== 'mac') window.setMenuBarVisibility(false);
+  remote = new Remote(window, store, vault, publish, {
+    settings, strip, layout, thumbnails, onInput: intercept,
+    onLoaded: connection => {
+      if (settings().autoFocus) {
+        store.setLayout({ sidebar: false, toolbar: false });
+        controlsExpanded = false;
+        remote.layout();
+      }
+      if (connection.fullscreen && !window.isFullScreen()) window.setFullScreen(true);
+      publish();
+    }
+  });
   controls = new WebContentsView({
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }
   });
@@ -236,23 +329,26 @@ async function start() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
+  window.webContents.on('before-input-event', intercept);
+  controls.webContents.on('before-input-event', intercept);
+  nativeTheme.on('updated', () => { applyTheme(); publish(); });
   ipcMain.handle('desk:invoke', async (event, input: unknown): Promise<Result> => {
-    if (!trustedSender(event) && !controlSender(event)) return { ok: false, error: '管理请求来源无效。' };
+    if (!trustedSender(event) && !controlSender(event)) return { ok: false, error: t('error.sender') };
     try {
       const action = actionSchema.parse(input);
-      if (controlSender(event) && !controlActions.has(action.type)) return { ok: false, error: '悬浮操作条无权执行此操作。' };
+      if (controlSender(event) && !controlActions.has(action.type)) return { ok: false, error: t('error.controls') };
       return await perform(action);
     } catch (error) {
       const message = error instanceof z.ZodError
-        ? `字段校验失败：${error.issues.map(issue => `${issue.path.join('.')} ${issue.message}`).join('；')}`
-        : error instanceof SyntaxError ? 'JSON 格式无效。'
-        : error instanceof Error && !('code' in error) ? error.message : '操作失败，请检查文件访问权限及磁盘空间。';
+        ? t('error.validation', { issues: error.issues.map(issue => `${issue.path.join('.')} ${issue.message}`).join('; ') })
+        : error instanceof SyntaxError ? t('error.json')
+        : error instanceof Error && !('code' in error) ? error.message : t('error.generic');
       return { ok: false, error: message };
     }
   });
   window.on('resize', () => { remote.layout(); layoutControls(); });
   window.on('enter-full-screen', () => { remote.layout(); publish(); });
-  window.on('leave-full-screen', () => { remote.layout(); publish(); });
+  window.on('leave-full-screen', () => { buttonPosition = ''; remote.layout(); publish(); });
   window.on('closed', () => { if (!controls.webContents.isDestroyed()) controls.webContents.close(); });
   window.on('close', event => {
     if (quitting) return;
@@ -266,12 +362,14 @@ async function start() {
   menu();
   await controls.webContents.loadURL(controlsURL);
   await window.loadURL(uiURL);
+  const automatic = store.connections.find(connection => connection.autoConnect);
+  if (automatic) void perform({ type: 'connect', id: automatic.id }).catch(() => {});
 }
 if (locked) {
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
   app.on('window-all-closed', () => app.quit());
   app.whenReady().then(start).catch(() => {
-    dialog.showErrorBox('Selkies Desk 无法启动', '无法读取本地配置或建立窗口。为保护现有数据，应用不会自动覆盖配置。请备份并检查用户数据目录后重试。');
+    dialog.showErrorBox(t('error.startTitle'), t('error.startBody'));
     app.quit();
   });
 }

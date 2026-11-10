@@ -4,3 +4,4 @@
 #handle span{width:24px;height:3px;background:#c4ccda;border-radius:2px}
 #strip{display:flex;align-items:center;justify-content:center;height:46px;gap:3px;padding:5px 7px;background:#252b36f7;border:1px solid #ffffff30;border-top:0;border-radius:0 0 12px 12px;box-shadow:0 1px 3px #0005}
 #strip button{height:32px;background:transparent;padding:0 10px;border-radius:6px;white-space:nowrap}#strip button:hover{background:#ffffff21}#restore{color:#9ac6ff}#disconnect{color:#ffada8}.separator{height:18px;width:1px;margin:0 5px;background:#ffffff24}[hidden]{display:none!important}
+#strip.floating{border-top:1px solid #ffffff30;border-radius:12px}

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 import { z } from 'zod';
 import { defaultLayout, layoutSchema, type Layout } from './layout';
+import { t } from './i18n';
+import { commands } from './platform';
 
 const httpURL = z.string().trim().max(2048).transform((value, context) => {
   try {
@@ -10,7 +12,7 @@ const httpURL = z.string().trim().max(2048).transform((value, context) => {
     if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.search || parsed.hash) throw Error();
     return parsed.href;
   } catch {
-    context.addIssue({ code: 'custom', message: '地址须为 HTTP(S)，不能含用户名、密码、查询参数或片段。' });
+    context.addIssue({ code: 'custom', message: t('model.url') });
     return z.NEVER;
   }
 });
@@ -21,7 +23,9 @@ export const connectionSchema = z.object({
   url: httpURL,
   group: z.string().trim().max(60).default(''),
   notes: z.string().max(1000).default(''),
-  username: z.string().trim().max(200).default('')
+  username: z.string().trim().max(200).default(''),
+  fullscreen: z.boolean().default(false),
+  autoConnect: z.boolean().default(false)
 }).strict();
 
 export type Connection = z.output<typeof connectionSchema> & { id: string };
@@ -30,11 +34,34 @@ const importSchema = z.object({
   version: z.literal(1),
   connections: z.array(connectionSchema).max(200)
 }).strict();
+const languageSetting = z.enum(['system', 'zh', 'en']);
+const themeSetting = z.enum(['system', 'light', 'dark']);
+export const settingsSchema = z.object({
+  language: languageSetting.default('system'),
+  theme: themeSetting.default('system'),
+  autoFocus: z.boolean().default(true),
+  autoReconnect: z.boolean().default(true),
+  thumbnails: z.boolean().default(true),
+  passSystemKeys: z.boolean().default(false),
+  shortcuts: z.partialRecord(z.enum(commands), z.string().max(60)).default({})
+}).strict();
+export type Settings = z.infer<typeof settingsSchema>;
+// A patch carries only the fields the user changed. It is declared without defaults on purpose:
+// defaults inside optional fields would be filled in and silently reset every other setting.
+export const settingsPatchSchema = z.object({
+  language: languageSetting.optional(),
+  theme: themeSetting.optional(),
+  autoFocus: z.boolean().optional(),
+  autoReconnect: z.boolean().optional(),
+  thumbnails: z.boolean().optional(),
+  passSystemKeys: z.boolean().optional()
+}).strict();
 const stateSchema = z.object({
   version: z.literal(1),
   connections: z.array(connectionSchema.extend({ id: z.uuid() })).max(200),
   certificates: z.record(z.string(), z.object({ origin: z.string(), fingerprint: z.string() }).strict()).default({}),
   layout: layoutSchema.default(defaultLayout),
+  settings: settingsSchema.optional(),
   window: z.object({
     width: z.number().int().min(900).max(10000),
     height: z.number().int().min(620).max(10000)
@@ -44,7 +71,7 @@ type State = z.infer<typeof stateSchema>;
 
 export function parseConnection(value: unknown) { return connectionSchema.parse(value); }
 export function parseImport(text: string) {
-  if (Buffer.byteLength(text) > 1024 * 1024) throw Error('配置文件不能大于 1 MB。');
+  if (Buffer.byteLength(text) > 1024 * 1024) throw Error(t('import.tooLarge'));
   return importSchema.parse(JSON.parse(text));
 }
 export function matchesOrigin(candidate: string, configured: string) {
@@ -76,30 +103,37 @@ export class Store {
     this.state = existsSync(this.file)
       ? stateSchema.parse(JSON.parse(readFileSync(this.file, 'utf8')))
       : { version: 1, connections: [], certificates: {}, layout: { ...defaultLayout } };
-    if (new Set(this.state.connections.map(connection => connection.id)).size !== this.state.connections.length) throw Error('配置中存在重复连接 ID，请恢复备份。');
+    if (new Set(this.state.connections.map(connection => connection.id)).size !== this.state.connections.length) throw Error(t('model.duplicateID'));
   }
   get connections(): Connection[] { return this.state.connections.map(connection => ({ ...connection })); }
   get window() { return this.state.window; }
   get layout() { return { ...this.state.layout }; }
+  get settings(): Settings { return settingsSchema.parse(this.state.settings ?? {}); }
+  setSettings(patch: Partial<Settings>) {
+    this.state.settings = settingsSchema.parse({ ...this.settings, ...patch });
+    this.flush();
+  }
   setLayout(layout: Layout) {
     this.state.layout = layoutSchema.parse(layout);
     this.flush();
   }
   get(id: string) {
     const connection = this.connections.find(connection => connection.id === id);
-    if (!connection) throw Error('连接不存在，可能已被删除。');
+    if (!connection) throw Error(t('model.missing'));
     return connection;
   }
   save(value: unknown): Connection {
     const parsed = parseConnection(value);
     const index = this.state.connections.findIndex(connection => connection.id === parsed.id);
-    if (parsed.id && index < 0) throw Error('不能更新不存在的连接。');
-    if (index < 0 && this.state.connections.length >= 200) throw Error('最多保存 200 个连接。');
+    if (parsed.id && index < 0) throw Error(t('model.updateMissing'));
+    if (index < 0 && this.state.connections.length >= 200) throw Error(t('model.limit'));
     const connection = { ...parsed, id: parsed.id || randomUUID() };
     if (index >= 0) {
       if (!matchesOrigin(connection.url, this.state.connections[index].url)) delete this.state.certificates[connection.id];
       this.state.connections[index] = connection;
     } else this.state.connections.push(connection);
+    // Only one desktop is active at a time, so only one connection can start with the app.
+    if (connection.autoConnect) for (const other of this.state.connections) if (other.id !== connection.id) other.autoConnect = false;
     this.flush();
     return connection;
   }
@@ -113,22 +147,22 @@ export class Store {
     return JSON.stringify({ version: 1, connections: this.connections }, null, 2);
   }
   import(data: ReturnType<typeof parseImport>) {
-    if (data.connections.length + this.connections.length > 200) throw Error('导入后将超过 200 个连接。');
+    if (data.connections.length + this.connections.length > 200) throw Error(t('model.importLimit'));
     const names = new Set(this.connections.map(connection => connection.name));
     const added: Connection[] = [];
     for (const entry of data.connections) {
       let name = entry.name;
       let suffix = 2;
-      while (names.has(name)) name = `${entry.name.slice(0, 64)}（导入 ${suffix++}）`;
+      while (names.has(name)) name = `${entry.name.slice(0, 64)}${t('model.importSuffix', { n: suffix++ })}`;
       names.add(name);
-      added.push({ ...entry, id: randomUUID(), name });
+      added.push({ ...entry, id: randomUUID(), name, autoConnect: false });
     }
     this.state.connections.push(...added);
     this.flush();
     return added;
   }
   trust(id: string, origin: string, fingerprint: string) {
-    if (!matchesOrigin(origin, this.get(id).url)) throw Error('证书来源不匹配。');
+    if (!matchesOrigin(origin, this.get(id).url)) throw Error(t('model.certOrigin'));
     this.state.certificates[id] = { origin, fingerprint };
     this.flush();
   }

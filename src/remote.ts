@@ -1,14 +1,35 @@
-import { app, dialog, shell, session, WebContentsView, type BrowserWindow, type WebContents, type Session, type AuthenticationResponseDetails, type AuthInfo, type Certificate } from 'electron';
+import { app, dialog, shell, session, WebContentsView, type BrowserWindow, type WebContents, type Session, type AuthenticationResponseDetails, type AuthInfo, type Certificate, type Event, type Input } from 'electron';
 import { X509Certificate, randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { matchesOrigin, matchesNetworkOrigin, Store, trustedCertificate, type Connection } from './model';
+import { matchesOrigin, matchesNetworkOrigin, Store, trustedCertificate, type Connection, type Settings } from './model';
+import { t, type Message } from './i18n';
+import type { Thumbnails } from './thumbnails';
+import { maxRetries, retryable, retryDelay } from './retry';
 import { Vault } from './vault';
 import type { Answer, Prompt, RemoteStatus } from './protocol';
 import { Permissions, isClipboardPermission } from './permissions';
-import { desktopBounds } from './layout';
+import { desktopBounds, type Layout } from './layout';
+
+export type RemoteOptions = {
+  settings: () => Settings;
+  /** Height reserved above the desktop when the toolbar is hidden. */
+  strip: () => number;
+  /** Layout actually on screen, which can differ from the saved preference in full screen. */
+  layout: () => Layout;
+  thumbnails: Thumbnails;
+  /** Called once per connection attempt, when the server page first finishes loading. */
+  onLoaded: (connection: Connection) => void;
+  /** Lets the main process handle management shortcuts before the remote page sees the key. */
+  onInput: (event: Event, input: Input) => void;
+};
 
 export class Remote {
-  status: RemoteStatus = { phase: 'idle', detail: '选择一个连接，打开远程桌面。' };
+  private phase: RemoteStatus['phase'] = 'idle';
+  private message: Message = ['detail.choose'];
+  private retries = 0;
+  private retryTimer?: NodeJS.Timeout;
+  private thumbnailTimer?: NodeJS.Timeout;
+  get status(): RemoteStatus { return { id: this.active?.id, phase: this.phase, detail: t(...this.message) }; }
   prompt?: Prompt;
   private view?: WebContentsView;
   private active?: Connection;
@@ -17,7 +38,7 @@ export class Remote {
   private attempts = 0;
   private pending?: { promise: Promise<Answer>; resolve: (answer: Answer) => void; timer: NodeJS.Timeout };
   private permissions = new Permissions();
-  constructor(private window: BrowserWindow, private store: Store, private vault: Vault, private changed: () => void) {
+  constructor(private window: BrowserWindow, private store: Store, private vault: Vault, private changed: () => void, private options: RemoteOptions) {
     app.on('login', (event, contents, request, auth, callback) => {
       if (contents !== this.view?.webContents) return;
       event.preventDefault();
@@ -30,7 +51,11 @@ export class Remote {
     });
   }
   get activeID() { return this.active?.id; }
-  get visible() { return !!this.view && !this.modal && !this.prompt && ['loading', 'loaded'].includes(this.status.phase); }
+  get visible() { return !!this.view && !this.modal && !this.prompt && ['loading', 'loaded'].includes(this.phase); }
+  /** Applies the “send app shortcuts to the remote desktop” setting to the active page. */
+  applyKeyPolicy() {
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.setIgnoreMenuShortcuts(this.options.settings().passSystemKeys);
+  }
   focus() { if (this.visible) this.view?.webContents.focus(); }
   setModal(open: boolean) {
     this.modal = open;
@@ -39,7 +64,7 @@ export class Remote {
   layout() {
     if (!this.view || this.window.isDestroyed()) return;
     const [width, height] = this.window.getContentSize();
-    this.view.setBounds(desktopBounds(width, height, this.store.layout));
+    this.view.setBounds(desktopBounds(width, height, this.options.layout(), this.options.strip()));
   }
   async connect(id: string) {
     const connection = this.store.get(id);
@@ -47,6 +72,7 @@ export class Remote {
     this.active = connection;
     const generation = this.generation;
     this.attempts = 0;
+    this.retries = 0;
     const partition = session.fromPartition(`persist:selkies-${connection.id}`);
     this.configureSession(partition, connection, generation);
     const view = new WebContentsView({
@@ -63,7 +89,11 @@ export class Remote {
     this.visibility();
     const contents = view.webContents;
     let loadFailed = false;
+    let loadedOnce = false;
+    let crashReloaded = false;
     contents.setBackgroundThrottling(false);
+    this.applyKeyPolicy();
+    contents.on('before-input-event', (event, input) => this.options.onInput(event, input));
     contents.setWindowOpenHandler(({ url }) => {
       void this.external(url, generation);
       return { action: 'deny' };
@@ -71,18 +101,18 @@ export class Remote {
     contents.on('will-navigate', (event, url) => {
       if (!matchesOrigin(url, connection.url)) {
         event.preventDefault();
-        this.notice('已阻止跨来源页面跳转。请为新地址单独建立连接。');
+        this.notice(['detail.crossNavigation']);
       }
     });
     contents.on('will-redirect', (event, url) => {
       if (!matchesOrigin(url, connection.url)) {
         event.preventDefault();
-        this.update('failed', '服务器尝试跳转到其他来源，已阻止。请核对连接地址。');
+        this.update('failed', ['detail.crossRedirect']);
       }
     });
     contents.on('will-attach-webview', event => event.preventDefault());
     contents.on('did-start-loading', () => {
-      if (this.valid(generation)) this.update('loading', '正在加载服务器页面…');
+      if (this.valid(generation)) this.update('loading', ['detail.loading']);
     });
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
       if (mainFrame && !inPlace && this.valid(generation)) {
@@ -91,19 +121,43 @@ export class Remote {
       }
     });
     contents.on('did-finish-load', () => {
-      if (this.valid(generation) && !loadFailed) this.update('loaded', '网页已就绪；视频、输入和画质状态请查看 Selkies 自带面板。');
+      if (!this.valid(generation) || loadFailed) return;
+      this.retries = 0;
+      this.update('loaded', ['detail.loaded']);
+      if (!loadedOnce) {
+        loadedOnce = true;
+        this.options.onLoaded(connection);
+      }
+      clearTimeout(this.thumbnailTimer);
+      this.thumbnailTimer = setTimeout(() => { if (this.valid(generation)) void this.capture(); }, 4000);
+      this.thumbnailTimer.unref();
     });
     contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3 && this.valid(generation)) {
         loadFailed = true;
-        this.update('failed', `页面加载失败：${description}（${code}）。请检查网络、认证或证书后重连。`);
+        const details = { description, code };
+        if (!this.options.settings().autoReconnect || !retryable(code)) { this.update('failed', ['detail.loadFailed', details]); return; }
+        if (this.retries >= maxRetries) { this.update('failed', ['detail.retryExhausted', { ...details, max: maxRetries }]); return; }
+        const attempt = ++this.retries;
+        const seconds = retryDelay(attempt);
+        this.update('waiting', ['detail.retrying', { ...details, seconds, attempt, max: maxRetries }]);
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => {
+          if (!this.valid(generation)) return;
+          this.update('loading', ['detail.loading']);
+          void contents.loadURL(connection.url).catch(() => {});
+        }, seconds * 1000);
       }
     });
     contents.on('render-process-gone', () => {
       if (this.valid(generation)) {
         this.permissions.clear();
         this.cancelPrompt();
-        this.update('failed', '远端页面进程已退出，请重连。');
+        if (this.options.settings().autoReconnect && !crashReloaded) {
+          crashReloaded = true;
+          this.update('loading', ['detail.crashRetry']);
+          contents.reload();
+        } else this.update('failed', ['detail.crashed']);
       }
     });
     contents.once('destroyed', () => {
@@ -112,20 +166,42 @@ export class Remote {
         this.cancelPrompt();
         this.view = undefined;
         this.window.contentView.removeChildView(view);
-        this.update('failed', '远端页面已关闭，请重连。');
+        this.update('failed', ['detail.closed']);
       }
     });
     contents.on('enter-html-full-screen', () => this.window.setFullScreen(true));
     contents.on('leave-html-full-screen', () => this.window.setFullScreen(false));
-    this.update('loading', '正在加载服务器页面…');
+    this.update('loading', ['detail.loading']);
     void contents.loadURL(connection.url).catch(() => {});
   }
+  /** Saves a small preview of the visible desktop for the connection card. */
+  async capture() {
+    const view = this.view;
+    const connection = this.active;
+    if (!view || !connection || this.phase !== 'loaded' || !this.visible || !this.options.settings().thumbnails) return;
+    try {
+      const image = await Promise.race([
+        view.webContents.capturePage(),
+        new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1500))
+      ]);
+      if (!image || image.isEmpty()) return;
+      this.options.thumbnails.write(connection.id, image.resize({ width: 480, quality: 'good' }).toJPEG(72));
+      this.changed();
+    } catch { /* A missing preview is not worth interrupting the session. */ }
+  }
   async disconnect() {
+    // Start the preview capture first, then report the new state at once so the
+    // interface never shows the old session as live while it is being closed.
+    const snapshot = this.capture();
+    clearTimeout(this.retryTimer);
+    clearTimeout(this.thumbnailTimer);
     this.generation++;
     this.permissions.clear();
     this.cancelPrompt();
     const view = this.view;
     this.view = undefined;
+    this.update(this.active ? 'disconnected' : 'idle', this.active ? ['detail.streamClosed'] : ['detail.choose']);
+    await snapshot;
     if (view && !view.webContents.isDestroyed()) {
       const partition = view.webContents.session;
       this.window.contentView.removeChildView(view);
@@ -136,7 +212,6 @@ export class Remote {
       await partition.flushStorageData();
       await partition.cookies.flushStore();
     }
-    this.update(this.active ? 'disconnected' : 'idle', this.active ? '流已关闭；远端应用继续运行。' : '选择一个连接，打开远程桌面。');
   }
   async clearPassword(id: string) {
     if (this.activeID === id) await this.disconnect();
@@ -147,7 +222,7 @@ export class Remote {
   forget(id: string) {
     if (this.active?.id === id) {
       this.active = undefined;
-      this.update('idle', '选择一个连接，打开远程桌面。');
+      this.update('idle', ['detail.choose']);
     }
   }
   async revoke(id: string) {
@@ -160,7 +235,7 @@ export class Remote {
     this.changed();
   }
   answer(answer: Answer) {
-    if (!this.prompt || this.prompt.token !== answer.token || !this.pending) throw Error('此确认已过期，请重新连接。');
+    if (!this.prompt || this.prompt.token !== answer.token || !this.pending) throw Error(t('detail.promptExpired'));
     this.pending.resolve(answer);
     clearTimeout(this.pending.timer);
     this.pending = undefined;
@@ -169,13 +244,14 @@ export class Remote {
     this.changed();
   }
   private valid(generation: number) { return generation === this.generation && !!this.view && !this.view.webContents.isDestroyed(); }
-  private update(phase: RemoteStatus['phase'], detail: string) {
-    this.status = { id: this.active?.id, phase, detail };
+  private update(phase: RemoteStatus['phase'], message: Message) {
+    this.phase = phase;
+    this.message = message;
     this.visibility();
     this.changed();
   }
-  private notice(detail: string) {
-    this.status = { ...this.status, detail };
+  private notice(message: Message) {
+    this.message = message;
     this.changed();
   }
   private visibility() {
@@ -199,7 +275,7 @@ export class Remote {
       if (this.prompt?.token === token) {
         this.cancelPrompt();
         this.visibility();
-        this.notice('确认已超时，请重连后重试。');
+        this.notice(['detail.promptTimeout']);
       }
     }, 120000);
     timer.unref();
@@ -214,7 +290,7 @@ export class Remote {
     const generation = this.generation;
     if (!connection || auth.isProxy || auth.scheme.toLowerCase() !== 'basic' || !matchesNetworkOrigin(request.url, connection.url)) {
       callback();
-      this.notice('已拒绝代理、非 Basic 或其他来源的凭据请求。');
+      this.notice(['detail.credentialRejected']);
       return;
     }
     const attempt = this.attempts++;
@@ -224,19 +300,19 @@ export class Remote {
     const answer = await this.ask({ type: 'auth', origin: new URL(connection.url).origin, username: connection.username, retry: attempt > 0 });
     if (!answer.accept || !this.valid(generation)) {
       callback();
-      if (this.valid(generation)) this.update('failed', '认证已取消，请重连后重新输入。');
+      if (this.valid(generation)) this.update('failed', ['detail.authCancelled']);
       return;
     }
     if (!answer.username?.trim() || answer.username.includes(':') || answer.password === undefined) {
       callback();
-      this.update('failed', '请输入有效用户名（不能含冒号）及密码后重连。');
+      this.update('failed', ['detail.authInvalid']);
       return;
     }
     const updated = this.store.save({ ...connection, username: answer.username.trim() });
     this.active = updated;
     const savedToDisk = await this.vault.set(updated, answer.password, !!answer.remember);
     if (!this.valid(generation)) { callback(); return; }
-    if (answer.remember && !savedToDisk) this.notice('加密存储暂不可用；密码仅用于本次会话，没有明文落盘。');
+    if (answer.remember && !savedToDisk) this.notice(['detail.storageUnavailable']);
     this.changed();
     callback(updated.username, answer.password);
   }
@@ -252,7 +328,7 @@ export class Remote {
       subject: certificate.subjectName, issuer: certificate.issuerName, validExpiry: certificate.validExpiry
     });
     if (!answer.accept || !this.valid(generation)) {
-      if (this.valid(generation)) this.update('failed', '证书未获信任，已拒绝连接。核对指纹后可重连。');
+      if (this.valid(generation)) this.update('failed', ['detail.certRejected']);
       return false;
     }
     this.store.trust(connection.id, origin, fingerprint);
@@ -285,23 +361,27 @@ export class Remote {
         && (!details.requestingUrl || matchesOrigin(details.requestingUrl, connection.url))
         && (!details.securityOrigin || matchesOrigin(details.securityOrigin, connection.url))
         && matchesOrigin(origin, connection.url)
-        && (isClipboardPermission(permission) || this.permissions.allows(connection, origin, permission, permission === 'media' ? details.mediaType || 'unknown' : ''));
+        && (this.granted(permission) || this.permissions.allows(connection, origin, permission, permission === 'media' ? details.mediaType || 'unknown' : ''));
     });
     partition.setPermissionRequestHandler((contents, permission, callback, details) => {
       const safe = ['clipboard-read', 'clipboard-sanitized-write', 'deprecated-sync-clipboard-read', 'media', 'pointerLock', 'keyboardLock', 'fullscreen', 'speaker-selection', 'local-network', 'local-network-access', 'loopback-network'];
       const requested = details.requestingUrl;
       if (!requested || !this.valid(generation) || contents !== this.view?.webContents || !matchesOrigin(requested, connection.url) || !safe.includes(permission)) { callback(false); return; }
       // Clipboard sharing is enabled for the configured active origin by product policy.
-      if (isClipboardPermission(permission)) { callback(true); return; }
+      if (this.granted(permission)) { callback(true); return; }
       const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined;
-      const labels: Record<string, string> = { media: `音视频设备（${mediaTypes?.join('、') || '摄像头 / 麦克风'}）`, pointerLock: '锁定鼠标指针', keyboardLock: '捕获键盘', fullscreen: '进入全屏', 'speaker-selection': '选择音频输出设备', 'local-network': '访问局域网', 'local-network-access': '访问局域网', 'loopback-network': '访问本机网络' };
+      const labels: Record<string, string> = {
+        media: t('perm.media', { types: mediaTypes?.join(', ') || t('perm.mediaDefault') }), pointerLock: t('perm.pointerLock'),
+        keyboardLock: t('perm.keyboardLock'), fullscreen: t('perm.fullscreen'), 'speaker-selection': t('perm.speaker'),
+        'local-network': t('perm.localNetwork'), 'local-network-access': t('perm.localNetwork'), 'loopback-network': t('perm.loopback')
+      };
       void this.permissions.request(connection, requested, permission, mediaTypes || [], async signal => {
         if (!this.valid(generation) || contents !== this.view?.webContents) return false;
         const result = await dialog.showMessageBox(this.window, {
-          type: 'question', title: '远端权限请求',
-          message: `允许“${connection.name}”${labels[permission]}？`,
-          detail: `${new URL(connection.url).origin}\n仅在您信任该服务器时允许。允许或拒绝将用于当前页面会话；重连、切换、断开或刷新页面后失效。要重新授权，请使用“重连”。`,
-          buttons: ['拒绝', '允许'], defaultId: 0, cancelId: 0, signal
+          type: 'question', title: t('perm.title'),
+          message: t('perm.message', { name: connection.name, what: labels[permission] }),
+          detail: t('perm.detail', { origin: new URL(connection.url).origin }),
+          buttons: [t('perm.deny'), t('perm.allow')], defaultId: 0, cancelId: 0, signal
         });
         return result.response === 1 && !signal.aborted && this.valid(generation) && contents === this.view?.webContents;
       }).then(allowed => callback(allowed && this.valid(generation) && contents === this.view?.webContents));
@@ -309,19 +389,23 @@ export class Remote {
     partition.removeAllListeners('will-download');
     partition.on('will-download', (event, item, contents) => {
       if (!this.valid(generation) || contents !== this.view?.webContents) { event.preventDefault(); return; }
-      item.setSaveDialogOptions({ title: '保存远端下载文件', defaultPath: basename(item.getFilename()) });
+      item.setSaveDialogOptions({ title: t('download.title'), defaultPath: basename(item.getFilename()) });
       item.on('done', (_event, state) => {
-        if (this.valid(generation)) this.notice(state === 'completed' ? '下载已保存到您选择的位置。' : `下载${state === 'cancelled' ? '已取消' : '未完成，请重试'}。`);
+        if (this.valid(generation)) this.notice([state === 'completed' ? 'detail.downloadSaved' : state === 'cancelled' ? 'detail.downloadCancelled' : 'detail.downloadFailed']);
       });
     });
+  }
+  /** Permissions granted by product policy: clipboard always, keyboard capture when system keys are forwarded. */
+  private granted(permission: string) {
+    return isClipboardPermission(permission) || (permission === 'keyboardLock' && this.options.settings().passSystemKeys);
   }
   private async external(url: string, generation: number) {
     let parsed: URL;
     try { parsed = new URL(url); } catch { return; }
     if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) return;
     const choice = await dialog.showMessageBox(this.window, {
-      type: 'question', title: '打开外部链接', message: '在系统浏览器中打开此链接？',
-      detail: parsed.href, buttons: ['取消', '打开浏览器'], defaultId: 0, cancelId: 0
+      type: 'question', title: t('external.title'), message: t('external.message'),
+      detail: parsed.href, buttons: [t('ui.cancel'), t('external.open')], defaultId: 0, cancelId: 0
     });
     if (choice.response === 1 && this.valid(generation)) await shell.openExternal(parsed.href);
   }

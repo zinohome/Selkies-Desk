@@ -1,41 +1,79 @@
 export type OS = 'mac' | 'windows' | 'linux';
-export type PlatformInfo = {
-  os: OS;
-  name: string;
-  /** Electron menu accelerators for connection management. */
-  accelerators: Record<ShortcutName, string>;
-  /** Human readable shortcut labels shown in tooltips. */
-  labels: Record<ShortcutName | 'fullscreen', string>;
-  storageNote: string;
-};
-type ShortcutName = 'new' | 'search' | 'reconnect' | 'sidebar' | 'toolbar' | 'focus';
+export const commands = ['new', 'switcher', 'settings', 'reconnect', 'sidebar', 'toolbar', 'focus', 'fullscreen'] as const;
+export type Command = typeof commands[number];
+export type Shortcuts = Record<Command, string>;
+export type KeyInput = { code: string; control?: boolean; meta?: boolean; alt?: boolean; shift?: boolean };
 
 export const osOf = (platform: string): OS => platform === 'darwin' ? 'mac' : platform === 'win32' ? 'windows' : 'linux';
+export const platformName = (os: OS) => ({ mac: 'macOS', windows: 'Windows', linux: 'Linux' })[os];
 
 /**
- * Management shortcuts always carry an extra Alt/Option modifier so that plain
+ * Management shortcuts carry an extra Alt/Option modifier so that plain
  * Ctrl/Cmd combinations keep reaching the remote desktop. Ubuntu reserves
  * Ctrl+Alt+T for the terminal, so Windows and Linux use H for the toolbar.
  */
-export function platformInfo(platform: string): PlatformInfo {
-  const os = osOf(platform);
-  const mac = os === 'mac';
-  const keys: Record<ShortcutName, string> = { new: 'N', search: 'L', reconnect: 'R', sidebar: 'B', toolbar: mac ? 'T' : 'H', focus: 'Enter' };
-  const names = Object.keys(keys) as ShortcutName[];
-  const accelerators = Object.fromEntries(names.map(name => [name, `${mac ? 'Command' : 'Control'}+Alt+${keys[name]}`])) as Record<ShortcutName, string>;
-  const labels = {
-    ...Object.fromEntries(names.map(name => [name, mac ? `⌘⌥${keys[name]}` : `Ctrl+Alt+${keys[name]}`])),
-    fullscreen: mac ? '⌃⌘F' : 'F11'
-  } as PlatformInfo['labels'];
+export function defaultShortcuts(os: OS): Shortcuts {
+  const prefix = os === 'mac' ? 'Command+Alt+' : 'Control+Alt+';
   return {
-    os, accelerators, labels,
-    name: { mac: 'macOS', windows: 'Windows', linux: 'Linux' }[os],
-    storageNote: {
-      mac: '使用由 macOS Keychain 保护密钥的加密存储；不会把明文密码写入配置。',
-      windows: '使用由当前 Windows 账户（DPAPI）保护密钥的加密存储；不会把明文密码写入配置。',
-      linux: '使用由系统密钥环（GNOME Keyring 或 KWallet）保护密钥的加密存储；不会把明文密码写入配置。'
-    }[os]
+    new: `${prefix}N`, switcher: `${prefix}K`, settings: `${prefix},`, reconnect: `${prefix}R`,
+    sidebar: `${prefix}B`, toolbar: `${prefix}${os === 'mac' ? 'T' : 'H'}`, focus: `${prefix}Enter`,
+    fullscreen: os === 'mac' ? 'Control+Command+F' : 'F11'
   };
+}
+
+const punctuation: Record<string, string> = {
+  Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: '\'', BracketLeft: '[', BracketRight: ']',
+  Backslash: '\\', Minus: '-', Equal: '=', Backquote: '`'
+};
+const named: Record<string, string> = {
+  Enter: 'Enter', NumpadEnter: 'Enter', Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right'
+};
+function keyToken(code: string) {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  return punctuation[code] || named[code];
+}
+
+/** Builds an Electron accelerator from a physical key press; undefined for modifier-only or unsupported keys. */
+export function acceleratorFromInput(input: KeyInput) {
+  const key = keyToken(input.code);
+  if (!key) return undefined;
+  return [input.control && 'Control', input.meta && 'Command', input.alt && 'Alt', input.shift && 'Shift', key].filter(Boolean).join('+');
+}
+/** A shortcut must not swallow ordinary typing: it needs Ctrl, Alt or Cmd, or must be a function key. */
+export function validShortcut(accelerator: string) {
+  const parts = accelerator.split('+');
+  const key = parts.at(-1) || '';
+  const modifiers = parts.slice(0, -1);
+  if (!key || modifiers.some(modifier => !['Control', 'Command', 'Alt', 'Shift'].includes(modifier))) return false;
+  if (new Set(modifiers).size !== modifiers.length) return false;
+  const known = /^[A-Z0-9]$/.test(key) || /^F([1-9]|1[0-9]|2[0-4])$/.test(key) || Object.values(punctuation).includes(key) || Object.values(named).includes(key);
+  if (!known) return false;
+  if (/^F\d+$/.test(key)) return true;
+  return modifiers.some(modifier => modifier !== 'Shift');
+}
+export function matchShortcut(input: KeyInput, shortcuts: Shortcuts): Command | undefined {
+  const pressed = acceleratorFromInput(input);
+  if (!pressed) return undefined;
+  return commands.find(command => shortcuts[command] === pressed);
+}
+export function effectiveShortcuts(os: OS, overrides: Partial<Record<Command, string>>): Shortcuts {
+  const result = defaultShortcuts(os);
+  for (const command of commands) {
+    const custom = overrides[command];
+    if (custom && validShortcut(custom)) result[command] = custom;
+  }
+  return result;
+}
+export function shortcutLabel(os: OS, accelerator: string) {
+  const parts = accelerator.split('+');
+  if (os === 'mac') {
+    const symbols: Record<string, string> = { Control: '⌃', Command: '⌘', Alt: '⌥', Shift: '⇧', Enter: '↩', Up: '↑', Down: '↓', Left: '←', Right: '→' };
+    return parts.map(part => symbols[part] || part).join('');
+  }
+  const names: Record<string, string> = { Control: 'Ctrl', Command: os === 'windows' ? 'Win' : 'Super' };
+  return parts.map(part => names[part] || part).join('+');
 }
 
 /**

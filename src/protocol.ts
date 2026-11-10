@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { connectionSchema, connectionID, type Connection } from './model';
+import { connectionSchema, connectionID, settingsPatchSchema, type Connection, type Settings } from './model';
+import type { Language } from './i18n';
+import { commands, type OS, type Shortcuts } from './platform';
 import type { Layout } from './layout';
-import type { PlatformInfo } from './platform';
 
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state') }).strict(),
@@ -18,6 +19,12 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('revokeCertificate'), id: connectionID }).strict(),
   z.object({ type: z.literal('export') }).strict(),
   z.object({ type: z.literal('import') }).strict(),
+  z.object({ type: z.literal('settings'), settings: settingsPatchSchema }).strict(),
+  // `accelerator: null` restores the default for that command.
+  z.object({ type: z.literal('shortcut'), command: z.enum(commands), accelerator: z.string().max(60).nullable() }).strict(),
+  // While the settings page records a new shortcut, key presses must reach it untouched.
+  z.object({ type: z.literal('recording'), active: z.boolean() }).strict(),
+  z.object({ type: z.literal('thumbnail'), id: connectionID }).strict(),
   z.object({
     type: z.literal('answer'), token: z.uuid(),
     accept: z.boolean(), username: z.string().max(200).optional(),
@@ -38,9 +45,10 @@ export type Prompt = {
   issuer?: string;
   validExpiry?: number;
 };
-export type RemoteStatus = { id?: string; phase: 'idle' | 'loading' | 'loaded' | 'disconnected' | 'failed'; detail: string };
+export type RemoteStatus = { id?: string; phase: 'idle' | 'loading' | 'loaded' | 'disconnected' | 'failed' | 'waiting'; detail: string };
 export type AppState = {
-  connections: (Connection & { savedPassword: boolean; certificateTrusted: boolean })[];
+  /** `thumbnail` is a cache key (0 = none); the image itself is fetched with the `thumbnail` action. */
+  connections: (Connection & { savedPassword: boolean; certificateTrusted: boolean; thumbnail: number })[];
   status: RemoteStatus;
   prompt?: Prompt;
   fullscreen: boolean;
@@ -48,7 +56,14 @@ export type AppState = {
   layout: Layout;
   preferredLayout: Layout;
   controlsExpanded: boolean;
-  platform: Pick<PlatformInfo, 'os' | 'name' | 'labels' | 'storageNote'>;
+  /** Pixels the expanded session controls hang below the top edge (macOS full screen). */
+  controlsInset: number;
+  platform: { os: OS; name: string; /** The app draws its own title bar (macOS). */ integratedTitleBar: boolean };
   version: string;
+  language: Language;
+  settings: Settings;
+  shortcuts: Shortcuts;
+  /** Shortcut text for tooltips, already formatted for this platform. */
+  shortcutLabels: Shortcuts;
 };
 export type Result = { ok: boolean; error?: string; state?: AppState; id?: string; text?: string; count?: number; message?: string };
