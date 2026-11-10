@@ -4,7 +4,7 @@ import { basename } from 'node:path';
 import { matchesOrigin, matchesNetworkOrigin, Store, trustedCertificate, type Connection, type Settings } from './model';
 import { t, type Message } from './i18n';
 import type { Thumbnails } from './thumbnails';
-import { maxRetries, retryable, retryDelay } from './retry';
+import { retryable, retryDelay } from './retry';
 import { Vault } from './vault';
 import type { Answer, Prompt, RemoteStatus } from './protocol';
 import { Permissions, isClipboardPermission } from './permissions';
@@ -29,7 +29,9 @@ export class Remote {
   private retries = 0;
   private retryTimer?: NodeJS.Timeout;
   private thumbnailTimer?: NodeJS.Timeout;
-  get status(): RemoteStatus { return { id: this.active?.id, phase: this.phase, detail: t(...this.message) }; }
+  private loadTimer?: NodeJS.Timeout;
+  private since?: number;
+  get status(): RemoteStatus { return { id: this.active?.id, phase: this.phase, detail: t(...this.message), since: this.since }; }
   prompt?: Prompt;
   private view?: WebContentsView;
   private active?: Connection;
@@ -91,6 +93,7 @@ export class Remote {
     let loadFailed = false;
     let loadedOnce = false;
     let crashReloaded = false;
+    let timedOut = false;
     contents.setBackgroundThrottling(false);
     this.applyKeyPolicy();
     contents.on('before-input-event', (event, input) => this.options.onInput(event, input));
@@ -122,6 +125,7 @@ export class Remote {
     });
     contents.on('did-finish-load', () => {
       if (!this.valid(generation) || loadFailed) return;
+      clearTimeout(this.loadTimer);
       this.retries = 0;
       this.update('loaded', ['detail.loaded']);
       if (!loadedOnce) {
@@ -132,22 +136,40 @@ export class Remote {
       this.thumbnailTimer = setTimeout(() => { if (this.valid(generation)) void this.capture(); }, 4000);
       this.thumbnailTimer.unref();
     });
+    // One attempt: start loading and give the server the configured time to answer at all.
+    const load = () => {
+      clearTimeout(this.loadTimer);
+      this.loadTimer = setTimeout(() => {
+        if (!this.valid(generation) || this.prompt) return;
+        timedOut = true;
+        contents.stop();
+        fail(-118, 'ERR_CONNECTION_TIMED_OUT');
+      }, this.options.settings().connectTimeout * 1000);
+      timedOut = false;
+      void contents.loadURL(connection.url).catch(() => {});
+    };
+    const fail = (code: number, description: string) => {
+      clearTimeout(this.loadTimer);
+      loadFailed = true;
+      const details = { description, code };
+      const max = this.options.settings().retryCount;
+      if (!this.options.settings().autoReconnect || !retryable(code)) { this.update('failed', ['detail.loadFailed', details]); return; }
+      if (this.retries >= max) { this.update('failed', ['detail.retryExhausted', { ...details, max }]); return; }
+      const attempt = ++this.retries;
+      const seconds = retryDelay(attempt);
+      this.update('waiting', ['detail.retrying', { ...details, seconds, attempt, max }]);
+      clearTimeout(this.retryTimer);
+      this.retryTimer = setTimeout(() => {
+        if (!this.valid(generation)) return;
+        this.update('loading', ['detail.loading']);
+        load();
+      }, seconds * 1000);
+    };
+    // The server has answered once the navigation commits; from then on the page is in charge.
+    contents.on('did-navigate', () => clearTimeout(this.loadTimer));
     contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
-      if (isMainFrame && code !== -3 && this.valid(generation)) {
-        loadFailed = true;
-        const details = { description, code };
-        if (!this.options.settings().autoReconnect || !retryable(code)) { this.update('failed', ['detail.loadFailed', details]); return; }
-        if (this.retries >= maxRetries) { this.update('failed', ['detail.retryExhausted', { ...details, max: maxRetries }]); return; }
-        const attempt = ++this.retries;
-        const seconds = retryDelay(attempt);
-        this.update('waiting', ['detail.retrying', { ...details, seconds, attempt, max: maxRetries }]);
-        clearTimeout(this.retryTimer);
-        this.retryTimer = setTimeout(() => {
-          if (!this.valid(generation)) return;
-          this.update('loading', ['detail.loading']);
-          void contents.loadURL(connection.url).catch(() => {});
-        }, seconds * 1000);
-      }
+      // Stopping a timed-out attempt reports an abort (-3); that attempt has already been handled.
+      if (isMainFrame && code !== -3 && !timedOut && this.valid(generation)) fail(code, description);
     });
     contents.on('render-process-gone', () => {
       if (this.valid(generation)) {
@@ -172,7 +194,7 @@ export class Remote {
     contents.on('enter-html-full-screen', () => this.window.setFullScreen(true));
     contents.on('leave-html-full-screen', () => this.window.setFullScreen(false));
     this.update('loading', ['detail.loading']);
-    void contents.loadURL(connection.url).catch(() => {});
+    load();
   }
   /** Saves a small preview of the visible desktop for the connection card. */
   async capture() {
@@ -194,6 +216,7 @@ export class Remote {
     // interface never shows the old session as live while it is being closed.
     const snapshot = this.capture();
     clearTimeout(this.retryTimer);
+    clearTimeout(this.loadTimer);
     clearTimeout(this.thumbnailTimer);
     this.generation++;
     this.permissions.clear();
@@ -245,6 +268,9 @@ export class Remote {
   }
   private valid(generation: number) { return generation === this.generation && !!this.view && !this.view.webContents.isDestroyed(); }
   private update(phase: RemoteStatus['phase'], message: Message) {
+    // The clock starts when the session first becomes usable and stops when it no longer is.
+    if (phase !== 'loaded') this.since = undefined;
+    else if (this.phase !== 'loaded') this.since = Date.now();
     this.phase = phase;
     this.message = message;
     this.visibility();
@@ -280,6 +306,7 @@ export class Remote {
     }, 120000);
     timer.unref();
     this.pending = { promise, resolve, timer };
+    clearTimeout(this.loadTimer);
     this.prompt = { ...value, token };
     this.visibility();
     this.changed();

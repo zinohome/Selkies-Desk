@@ -26,6 +26,7 @@ const switcher = element<HTMLDialogElement>('switcher');
 const form = element<HTMLFormElement>('connection-form');
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
 const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys'] as const;
+const numbers = ['retryCount', 'connectTimeout'] as const;
 let current: AppState;
 let selected: string | undefined;
 /** Connection the user just asked for; it stays selected while the previous session is still closing. */
@@ -73,6 +74,18 @@ function translate() {
     }
   }
 }
+/** Elapsed time of the current session, shown beside the status as 12:34 or 1:02:03. */
+let since: number | undefined;
+function clock() {
+  const target = element('status-time');
+  target.hidden = since === undefined;
+  if (since === undefined) return;
+  const seconds = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const hours = Math.floor(seconds / 3600);
+  target.textContent = `${hours ? `${hours}:` : ''}${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+}
+setInterval(clock, 1000);
 function selection() { return current?.connections.find(connection => connection.id === selected); }
 function matches(connection: Entry, search: string) {
   return `${connection.name} ${connection.url} ${connection.group} ${connection.notes}`.toLocaleLowerCase().includes(search);
@@ -243,6 +256,8 @@ function settingsForm() {
   element<HTMLSelectElement>('set-language').value = current.settings.language;
   element<HTMLSelectElement>('set-theme').value = current.settings.theme;
   for (const name of toggles) input(`set-${name}`).checked = current.settings[name];
+  for (const name of numbers) if (document.activeElement !== input(`set-${name}`)) input(`set-${name}`).value = String(current.settings[name]);
+  input('set-retryCount').disabled = !current.settings.autoReconnect;
   element('build').textContent = t('settings.version', { version: current.version });
   shortcutRows();
 }
@@ -299,6 +314,8 @@ function render(state: AppState) {
   element('strip-title').textContent = connection?.name || 'Selkies Desk';
   element('status').textContent = t(`status.${phase}`);
   element('status-dot').className = phase;
+  since = active && phase === 'loaded' ? state.status.since : undefined;
+  clock();
   const sidebarLabel = t(state.layout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar');
   button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
   button('toggle-sidebar').title = `${sidebarLabel} · ${keys.sidebar}`;
@@ -497,6 +514,14 @@ settingsDialog.oncancel = event => {
 element<HTMLSelectElement>('set-language').onchange = event => { void invoke({ type: 'settings', settings: { language: (event.target as HTMLSelectElement).value as AppState['settings']['language'] } }); };
 element<HTMLSelectElement>('set-theme').onchange = event => { void invoke({ type: 'settings', settings: { theme: (event.target as HTMLSelectElement).value as AppState['settings']['theme'] } }); };
 for (const name of toggles) input(`set-${name}`).onchange = () => { void invoke({ type: 'settings', settings: { [name]: input(`set-${name}`).checked } }); };
+// A number outside the allowed range is put back to the nearest allowed value rather than rejected.
+for (const name of numbers) input(`set-${name}`).onchange = () => {
+  const field = input(`set-${name}`);
+  const value = Math.round(Number(field.value));
+  const bounded = Number.isFinite(value) ? Math.max(Number(field.min), Math.min(Number(field.max), value)) : current.settings[name];
+  field.value = String(bounded);
+  void invoke({ type: 'settings', settings: { [name]: bounded } });
+};
 // While recording, the next complete key combination becomes the shortcut.
 // Listening on the document keeps this working after the clicked button is re-rendered and loses focus.
 document.addEventListener('keydown', event => {

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { MockDesktop, certificate } from './fixtures';
 
 test.describe.serial('客户端真实 Electron 行为', () => {
@@ -129,7 +130,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await login('wrong-fixture-pass');
     await expect(ui.getByText('认证未通过，请重新输入。')).toBeVisible();
     await login('fixture-pass', true);
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     const page = await remote();
     await expect(page.getByRole('heading', { name: '本地模拟桌面 · alice' })).toBeVisible();
     await expect.poll(() => first.webSockets).toBe(1);
@@ -151,7 +152,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     expect(previous.isClosed()).toBe(true);
     await page.getByRole('button', { name: '切换 DPI 设置' }).click();
     await ui.getByRole('button', { name: '研发工作台 · Alice', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     const restored = await remote();
     expect(await restored.evaluate(() => localStorage.getItem('dpi'))).toBe('2');
     await expect(restored.locator('#isolation')).toContainText('previous=alice; cookie=account=alice');
@@ -181,7 +182,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await expect.poll(() => first.streams).toBe(0);
     await expect.poll(() => first.webSockets).toBe(0);
     await ui.getByRole('button', { name: '研发工作台 · Alice', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await expect.poll(() => second.streams).toBe(0);
   });
 
@@ -239,7 +240,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     try {
       for (let session = 0; session < 2; session++) {
         await ui.getByRole('button', { name: '重连', exact: true }).click();
-        await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+        await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
         const page = await remote();
         await page.getByLabel('远端输入').click();
         const results = await page.evaluate(async () => {
@@ -327,7 +328,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await ui.getByRole('button', { name: '断开', exact: true }).click();
     expect(await application.evaluate(() => (globalThis as any).boundaryCall())).toBe(false);
     await ui.getByRole('button', { name: '重连', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
   });
 
   test('刷新、断开和页面销毁会关闭真实原生权限弹窗，待决回调只拒绝一次', async () => {
@@ -354,7 +355,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     try {
       for (const action of ['refresh', 'disconnect', 'destroy']) {
         await ui.getByRole('button', { name: '重连', exact: true }).click();
-        await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+        await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
         await application.evaluate(({ webContents }, origin) => {
           const memory = globalThis as any;
           memory.lifecycleResults = [];
@@ -385,7 +386,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
       const reconnected = await ui.evaluate(() => (window as any).desk.invoke({ type: 'reconnect' }));
       expect(reconnected.error).toBeUndefined();
       expect(reconnected).toMatchObject({ ok: true });
-      await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+      await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     }
   });
 
@@ -412,7 +413,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     expect(second.receivedForeignAuth).toBe(false);
     expect(ui.url()).toContain('index.html');
     await ui.getByRole('button', { name: '重连', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
   });
 
   test('本地模拟端中文文本、键盘、Retina 坐标、缩放与全屏退出', async () => {
@@ -552,7 +553,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await expect(ui.getByRole('button', { name: '隐藏侧栏', exact: true })).toBeVisible();
     await ui.evaluate(async id => (window as any).desk.invoke({ type: 'delete', id }), result.id);
     await ui.getByRole('button', { name: '研发工作台 · Alice', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
   });
 
   test('断开与重连释放活动流', async () => {
@@ -561,10 +562,10 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await expect.poll(() => first.webSockets).toBe(0);
     await expect(ui.getByText('已断开', { exact: true })).toBeVisible();
     await ui.getByRole('button', { name: '连接', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await expect.poll(() => first.streams).toBe(1);
     await ui.getByRole('button', { name: '重连', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await expect.poll(() => first.streams).toBe(1);
   });
 
@@ -576,7 +577,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await ui.screenshot({ path: join(evidence, '04-certificate.png') });
     await ui.getByRole('button', { name: '信任此连接的此证书', exact: true }).click();
     await login();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await expect.poll(() => tls.webSockets).toBe(1);
     const extra = await add('同证书另一连接', tls.origin);
     await ui.getByRole('button', { name: '同证书另一连接', exact: true }).click();
@@ -593,7 +594,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await ui.getByRole('button', { name: '自签名测试', exact: true }).click();
     await expect(ui.getByRole('heading', { name: '核对服务器证书' })).toBeVisible();
     await ui.getByRole('button', { name: '信任此连接的此证书', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await ui.getByRole('button', { name: '连接设置', exact: true }).click();
     await ui.getByRole('button', { name: '撤销证书信任', exact: true }).click();
     await ui.getByRole('button', { name: '取消', exact: true }).click();
@@ -642,7 +643,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     const connection = (await state()).connections.find((entry: any) => entry.id === bobID);
     expect(connection.username).toBe('bob');
     await ui.getByRole('button', { name: '研发工作台 · Bob', exact: true }).click();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
     await ui.getByRole('button', { name: '连接设置', exact: true }).click();
     await ui.getByRole('button', { name: '删除连接', exact: true }).click();
     await expect(ui.getByRole('heading', { name: '删除此连接？' })).toBeVisible();
@@ -685,7 +686,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await ui.getByRole('button', { name: '连接', exact: true }).click();
     await expect(ui.getByRole('heading', { name: '服务器认证' })).toBeVisible();
     await login();
-    await expect(ui.getByText('页面已加载', { exact: true })).toBeVisible();
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
   });
 
   test('远端网页截走全部按键时管理快捷键仍生效且只触发一次；可自定义、查重并恢复默认', async () => {
@@ -1016,5 +1017,60 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     expect(await invoke({ type: 'delete', id: extra.id })).toMatchObject({ ok: true });
     // With a single group left there is nothing to fold, so no heading is shown.
     await expect(again.getByRole('button', { name: '模拟环境', exact: true })).toHaveCount(0);
+  });
+
+  test('连接超时和重连次数按设置生效：服务器不响应时到点判定超时，重试指定次数后停止；已连接时显示连接时长', async () => {
+    // While connected, the status reads “已连接” with a running clock rather than describing the page.
+    await ui.getByRole('button', { name: '研发工作台 · Alice', exact: true }).first().click();
+    await login();
+    await expect.poll(async () => (await state()).status.phase).toBe('loaded');
+    await expect(ui.getByText('已连接', { exact: true })).toBeVisible();
+    await expect(ui.locator('#status-time')).toHaveText(/^\d{2}:\d{2}$/);
+    const first = await ui.locator('#status-time').textContent();
+    await expect.poll(() => ui.locator('#status-time').textContent(), { timeout: 5000 }).not.toBe(first);
+    expect((await state()).status.since).toBeGreaterThan(Date.now() - 60000);
+
+    // The settings page edits both numbers and keeps them within bounds.
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.getByRole('tab', { name: '会话' }).click();
+    // The retry count only applies while automatic reconnect is on.
+    await expect(ui.locator('#set-retryCount')).toBeDisabled();
+    await ui.locator('#set-autoReconnect').check();
+    await expect(ui.locator('#set-retryCount')).toBeEnabled();
+    await ui.locator('#set-connectTimeout').fill('3');
+    await ui.locator('#set-connectTimeout').blur();
+    await ui.locator('#set-retryCount').fill('99');
+    await ui.locator('#set-retryCount').blur();
+    await expect(ui.locator('#set-retryCount')).toHaveValue('20');
+    await ui.locator('#set-retryCount').fill('1');
+    await ui.locator('#set-retryCount').blur();
+    await expect.poll(async () => { const now = (await state()).settings; return [now.connectTimeout, now.retryCount]; }).toEqual([3, 1]);
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
+
+    // A server that accepts the connection and then says nothing.
+    const sockets = new Set<import('node:net').Socket>();
+    const silent = createServer(socket => { sockets.add(socket); socket.on('error', () => {}); });
+    await new Promise<void>(resolve => silent.listen(0, '127.0.0.1', resolve));
+    const port = (silent.address() as import('node:net').AddressInfo).port;
+    const saved = await invoke({ type: 'save', connection: { name: '无响应服务器', url: `http://127.0.0.1:${port}` } }) as any;
+    try {
+      const started = Date.now();
+      await invoke({ type: 'connect', id: saved.id });
+      await expect.poll(async () => (await state()).status.phase, { timeout: 8000 }).toBe('waiting');
+      const waited = Date.now() - started;
+      expect(waited).toBeGreaterThanOrEqual(2800);
+      expect(waited).toBeLessThan(6500);
+      expect((await state()).status.detail).toMatch(/ERR_CONNECTION_TIMED_OUT（-118）。2 秒后进行第 1\/1 次重连。$/);
+      // One retry (after 2 s) times out as well, and then it stops instead of trying for ever.
+      await expect.poll(async () => (await state()).status.phase, { timeout: 12000 }).toBe('failed');
+      expect((await state()).status.detail).toMatch(/^已自动重连 1 次仍未成功：ERR_CONNECTION_TIMED_OUT/);
+      await ui.waitForTimeout(4000);
+      expect((await state()).status.phase).toBe('failed');
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => silent.close(() => resolve()));
+      await invoke({ type: 'delete', id: saved.id });
+      await invoke({ type: 'settings', settings: { autoReconnect: false, retryCount: 6, connectTimeout: 20 } });
+    }
   });
 });

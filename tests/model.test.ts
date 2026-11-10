@@ -263,7 +263,7 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
   const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
   try {
     const store = new Store(directory);
-    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, thumbnails: true, passSystemKeys: false, shortcuts: {} });
+    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, shortcuts: {} });
     store.setSettings({ theme: 'dark', language: 'en', shortcuts: { sidebar: 'Control+Shift+J' } });
     const reopened = new Store(directory);
     assert.equal(reopened.settings.theme, 'dark');
@@ -277,6 +277,10 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
     store.setSettings(settingsPatchSchema.parse({ theme: 'light' }));
     assert.equal(store.settings.autoFocus, false);
     assert.throws(() => settingsPatchSchema.parse({ shortcuts: {} }));
+    // Retry count and timeout are whole numbers within sensible bounds.
+    store.setSettings(settingsPatchSchema.parse({ retryCount: 3, connectTimeout: 45 }));
+    assert.deepEqual([new Store(directory).settings.retryCount, new Store(directory).settings.connectTimeout], [3, 45]);
+    for (const bad of [{ retryCount: 0 }, { retryCount: 21 }, { retryCount: 2.5 }, { connectTimeout: 2 }, { connectTimeout: 121 }]) assert.throws(() => settingsPatchSchema.parse(bad));
     // A 0.3.0 file has neither settings nor the per-connection options.
     writeFileSync(join(directory, 'connections.json'), JSON.stringify({
       version: 1, certificates: {}, layout: { sidebar: true, toolbar: true },

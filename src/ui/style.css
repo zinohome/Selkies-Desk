@@ -272,3 +272,8 @@ input.switch:checked::after { transform: translateX(16px); }
 .connection-more { position: absolute; right: 4px; top: 50%; width: 26px; height: 26px; margin-top: -14px; padding: 0; display: grid; place-items: center; border-color: transparent; border-radius: 6px; background: transparent; color: var(--faint); }
 .connection-more:hover { background: var(--hover); color: var(--text); }
 .connection-row .selected + .connection-more:hover { background: var(--accent-soft); }
+
+#status-time { font-variant-numeric: tabular-nums; color: var(--faint); }
+#status-time::before { content: "·"; margin-right: 6px; }
+input.number { width: 72px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--text); text-align: right; }
+input.number:disabled { opacity: .45; }

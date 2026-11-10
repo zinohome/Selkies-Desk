@@ -2,20 +2,21 @@
 
 ## 0.4.1（当前版本）
 
-测试日期 2026-11-11，同一台 Mac。相对 0.4.0 增加了侧栏分组折叠和每个连接的“···”设置按钮。
+测试日期 2026-11-11，同一台 Mac。相对 0.4.0 增加了侧栏分组折叠、每个连接的“···”设置按钮、可设置的连接超时和重连次数，状态改为“已连接”加连接时长。
 
-- 23 项单元测试、27 项 Electron E2E 通过，源码和打包后的 arm64 应用各运行一遍。新增 1 项：分组折叠与展开、折叠分组显示连接数和活动状态、搜索能找到折叠分组里的连接、重启后保留折叠状态、只剩一个分组时不显示分组标题；点击侧栏某个连接的“···”打开它的设置且不改变当前连接状态。
+- 23 项单元测试、28 项 Electron E2E 通过，源码和打包后的 arm64 应用各运行一遍。新增的一项用一个只接受连接、不回任何数据的本地服务器验证：超时设为 3 秒时约 3 秒后判定 `ERR_CONNECTION_TIMED_OUT`，重连次数设为 1 时重试一次后停止；同时验证已连接时显示走动的连接时长，以及设置页把超出范围的数值收回到允许范围。另一项新增：分组折叠与展开、折叠分组显示连接数和活动状态、搜索能找到折叠分组里的连接、重启后保留折叠状态、只剩一个分组时不显示分组标题；点击侧栏某个连接的“···”打开它的设置且不改变当前连接状态。
+- 每次重新打包后，打包应用的第一次 E2E 运行都会在“加密记住密码”一步超时：新签名的应用首次访问钥匙串需要时间或系统确认，此时“记住密码”暂不可用。重跑后 28 项全部通过。正式签名的应用不会每次构建都更换身份，这一点没有实测。
 - 四种安装包重新构建，DMG 和签名校验通过。Intel Mac、Windows、Ubuntu 包仍未在对应系统运行。
 
 0.4.1 安装包 SHA256：
 
 ```text
-8209d5de9027e9230f58f5cabd49e1e49cb24f4468daff8a2cb0566175e402bc  Selkies-Desk-0.4.1-mac-arm64.dmg
-f65697c950866bc3904f22576f0f3d9b615509e9d922cf43c16a18444f044b07  Selkies-Desk-0.4.1-mac-arm64.zip
-76341a23e357de00ebd1935595d17f50a388bbe218b5644d64bbbef9a20c02ba  Selkies-Desk-0.4.1-mac-x64.dmg
-e2cfcd7892629ea7d04a45bac5a4f73aabaa46ff1e8364021658f1461b8b7a84  Selkies-Desk-0.4.1-mac-x64.zip
-103646805a87495d59bf47955d8a8eb98221dfad165b189cdcfe24e4897f725b  Selkies-Desk-0.4.1-windows-x64-setup.exe
-7df687e4f5016b1077e1df5d6b371663e2115a1fca9cd6682e822bedd1e8bba8  selkies-desk_0.4.1_amd64.deb
+b2cf6eb646bd54fb13f1c4d7e1379442a2ec4ab0ca6f7c5fe79d3633642c6d8e  Selkies-Desk-0.4.1-mac-arm64.dmg
+7106178168d946de4acf590aad9e3ac01d64cdbe2bc916e0ccbb0324cfaed185  Selkies-Desk-0.4.1-mac-arm64.zip
+383d961e0c6b98485ab748aabff7cc12d36c3bf5e011beeaa4151b2c514a44a2  Selkies-Desk-0.4.1-mac-x64.dmg
+5076f27874a4b4efcb9f3529b7237a5099e5c122762d358f26242c483e4db1cb  Selkies-Desk-0.4.1-mac-x64.zip
+25a3ae6f4c8ee50abca0358e32cd99bb1cc922321a16897a89834dc5052e2206  Selkies-Desk-0.4.1-windows-x64-setup.exe
+e3457d95de26e87a76b0a69900d4226b8722ad8af1c7c524028c860cf7ed94e7  selkies-desk_0.4.1_amd64.deb
 ```
 
 ## 0.4.0

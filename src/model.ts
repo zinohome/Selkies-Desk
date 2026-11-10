@@ -41,6 +41,10 @@ export const settingsSchema = z.object({
   theme: themeSetting.default('system'),
   autoFocus: z.boolean().default(true),
   autoReconnect: z.boolean().default(true),
+  /** How many times a lost connection is retried before giving up. */
+  retryCount: z.number().int().min(1).max(20).default(6),
+  /** Seconds to wait for the server to answer before a connection attempt counts as failed. */
+  connectTimeout: z.number().int().min(3).max(120).default(20),
   thumbnails: z.boolean().default(true),
   passSystemKeys: z.boolean().default(false),
   shortcuts: z.partialRecord(z.enum(commands), z.string().max(60)).default({})
@@ -53,6 +57,8 @@ export const settingsPatchSchema = z.object({
   theme: themeSetting.optional(),
   autoFocus: z.boolean().optional(),
   autoReconnect: z.boolean().optional(),
+  retryCount: z.number().int().min(1).max(20).optional(),
+  connectTimeout: z.number().int().min(3).max(120).optional(),
   thumbnails: z.boolean().optional(),
   passSystemKeys: z.boolean().optional()
 }).strict();

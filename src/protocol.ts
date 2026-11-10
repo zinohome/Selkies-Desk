@@ -48,7 +48,7 @@ export type Prompt = {
   issuer?: string;
   validExpiry?: number;
 };
-export type RemoteStatus = { id?: string; phase: 'idle' | 'loading' | 'loaded' | 'disconnected' | 'failed' | 'waiting'; detail: string };
+export type RemoteStatus = { id?: string; phase: 'idle' | 'loading' | 'loaded' | 'disconnected' | 'failed' | 'waiting'; detail: string; /** When the current session became usable (epoch ms); shown as elapsed time. */ since?: number };
 export type AppState = {
   /** `thumbnail` is a cache key (0 = none); the image itself is fetched with the `thumbnail` action. */
   connections: (Connection & { savedPassword: boolean; certificateTrusted: boolean; thumbnail: number })[];

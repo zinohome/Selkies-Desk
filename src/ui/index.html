@@ -27,7 +27,7 @@
       <header class="main-header drag">
         <button id="toggle-sidebar" class="icon-button"></button>
         <div class="heading"><h1 id="title"></h1><p id="address"></p></div>
-        <span class="status"><i id="status-dot"></i><span id="status"></span></span>
+        <span class="status"><i id="status-dot"></i><span id="status"></span><span id="status-time" data-i18n-attr="title:status.elapsed" hidden></span></span>
         <div class="actions">
           <button id="settings" class="icon-button" data-i18n-attr="aria-label:ui.connectionSettings;title:ui.connectionSettings" disabled></button>
           <button id="reconnect" class="icon-button" data-i18n-attr="aria-label:ui.reconnect" disabled></button>
@@ -155,6 +155,8 @@
       <section role="tabpanel" data-pane="session" hidden>
         <label class="setting"><span data-i18n="settings.autoFocus"></span><input type="checkbox" class="switch" id="set-autoFocus"></label>
         <label class="setting"><span data-i18n="settings.autoReconnect"></span><input type="checkbox" class="switch" id="set-autoReconnect"></label>
+        <label class="setting"><span data-i18n="settings.retryCount"></span><input type="number" class="number" id="set-retryCount" min="1" max="20" step="1" inputmode="numeric"></label>
+        <label class="setting"><span><span data-i18n="settings.connectTimeout"></span><small data-i18n="settings.connectTimeoutHelp"></small></span><input type="number" class="number" id="set-connectTimeout" min="3" max="120" step="1" inputmode="numeric"></label>
         <label class="setting"><span><span data-i18n="settings.thumbnails"></span><small data-i18n="settings.thumbnailsHelp"></small></span><input type="checkbox" class="switch" id="set-thumbnails"></label>
         <label class="setting"><span><span data-i18n="settings.passSystemKeys"></span><small data-i18n="settings.passSystemKeysHelp"></small></span><input type="checkbox" class="switch" id="set-passSystemKeys"></label>
       </section>
