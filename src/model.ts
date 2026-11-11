@@ -55,6 +55,8 @@ export const settingsSchema = z.object({
   videoRateControl: z.enum(['cbr', 'crf']).default('cbr'),
   /** Megabits per second, used with constant bitrate. */
   videoBitrate: z.number().int().min(1).max(200).default(15),
+  /** auto: find and download new versions, then ask to restart. notify: only tell. off: never look. */
+  updateMode: z.enum(['auto', 'notify', 'off']).default('auto'),
   shortcuts: z.partialRecord(z.enum(commands), z.string().max(60)).default({})
 }).strict();
 export type Settings = z.infer<typeof settingsSchema>;
@@ -73,7 +75,8 @@ export const settingsPatchSchema = z.object({
   videoEncoder: z.enum(videoEncoders).optional(),
   videoFramerate: z.number().int().min(10).max(240).optional(),
   videoRateControl: z.enum(['cbr', 'crf']).optional(),
-  videoBitrate: z.number().int().min(1).max(200).optional()
+  videoBitrate: z.number().int().min(1).max(200).optional(),
+  updateMode: z.enum(['auto', 'notify', 'off']).optional()
 }).strict();
 const stateSchema = z.object({
   version: z.literal(1),

@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { MockDesktop, certificate } from './fixtures';
 
 test.describe.serial('客户端真实 Electron 行为', () => {
@@ -16,6 +19,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
   let aliceID: string;
   let bobID: string;
   let tlsID: string;
+  let feed: { url: string; bad: boolean; downloads: number; close: () => Promise<void> } | undefined;
   const evidence = resolve('.qa/evidence');
   // Where the app draws its own title bar, windowed focus mode keeps a slim drag strip above the desktop.
   const strip = process.platform === 'darwin' ? 28 : 0;
@@ -57,7 +61,8 @@ test.describe.serial('客户端真实 Electron 行为', () => {
   });
   const launch = () => electron.launch({
     ...(process.env.SELKIES_PACKAGED_PATH ? { executablePath: process.env.SELKIES_PACKAGED_PATH } : {}),
-    args: [...(process.env.SELKIES_PACKAGED_PATH ? [] : [resolve('.')]), `--user-data-dir=${join(directory, 'profile')}`],
+    // Updates are looked for on a local stand-in for the release feed, never on the network.
+    args: [...(process.env.SELKIES_PACKAGED_PATH ? [] : [resolve('.')]), `--user-data-dir=${join(directory, 'profile')}`, ...(feed ? [`--update-feed=${feed.url}`] : [])],
     // Playwright otherwise pins pages to the light scheme, which would hide the app's own theme switch.
     colorScheme: null,
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: '0' }
@@ -94,7 +99,7 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     mkdirSync(join(directory, 'profile'), { recursive: true });
     writeFileSync(join(directory, 'profile', 'connections.json'), JSON.stringify({
       version: 1, connections: [], certificates: {}, layout: { sidebar: true, toolbar: true },
-      settings: { language: 'zh', theme: 'light', autoFocus: false, autoReconnect: false }
+      settings: { language: 'zh', theme: 'light', autoFocus: false, autoReconnect: false, updateMode: 'off' }
     }));
     mkdirSync(evidence, { recursive: true });
     second = await new MockDesktop().start();
@@ -102,13 +107,41 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     first.foreignOrigin = second.origin;
     await first.start();
     tls = await new MockDesktop(certificate(directory, 'mock-one')).start();
+    // A stand-in release feed offering version 9.9.9 for this computer, with its checksum list.
+    {
+      const os = process.platform === 'darwin' ? `mac-${process.arch}.zip` : process.platform === 'win32' ? 'windows-x64-setup.exe' : '';
+      const name = os ? `Selkies-Desk-9.9.9-${os}` : 'selkies-desk_9.9.9_amd64.deb';
+      const payload = Buffer.from(`stand-in package ${'x'.repeat(4000)}`);
+      const server = createHttpServer((request, response) => {
+        const base = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`;
+        if (request.url === '/latest') {
+          response.setHeader('Content-Type', 'application/json');
+          response.end(JSON.stringify({ tag_name: 'v9.9.9', html_url: 'https://github.com/zinohome/Selkies-Desk/releases/tag/v9.9.9', assets: [
+            { name, browser_download_url: `${base}/files/${name}`, size: payload.length },
+            { name: 'SHA256SUMS-9.9.9.txt', browser_download_url: `${base}/files/SHA256SUMS-9.9.9.txt`, size: 100 }
+          ] }));
+        } else if (request.url === `/files/${name}`) {
+          feed!.downloads++;
+          response.setHeader('Content-Length', String(payload.length));
+          response.end(payload);
+        } else if (request.url === '/files/SHA256SUMS-9.9.9.txt') {
+          const digest = createHash('sha256').update(feed!.bad ? 'something else' : payload).digest('hex');
+          response.end(`${digest}  ${name}\n`);
+        } else { response.statusCode = 404; response.end(); }
+      });
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+      feed = {
+        url: `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/latest`, bad: false, downloads: 0,
+        close: () => new Promise<void>(resolve => server.close(() => resolve()))
+      };
+    }
     application = await launch();
     ui = await management();
     await expect(ui.getByText('还没有连接', { exact: true })).toBeVisible();
   });
   test.afterAll(async () => {
     if (application) await application.close();
-    await Promise.all([first?.stop(), second?.stop(), tls?.stop()]);
+    await Promise.all([first?.stop(), second?.stop(), tls?.stop(), feed?.close()]);
     if (directory) rmSync(directory, { recursive: true, force: true });
   });
 
@@ -1134,5 +1167,57 @@ test.describe.serial('客户端真实 Electron 行为', () => {
     await invoke({ type: 'settings', settings: { videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15 } });
     page = await reconnect();
     expect(await page.evaluate(() => (window as any).videoAtStart)).toEqual(expected('h264enc', '45', 'cbr', '15000'));
+  });
+
+  test('更新：自动发现并下载、校验通过后提示重启；只提示模式不自动下载；校验不一致时拒绝并删除文件', async () => {
+    const update = async () => (await state()).update;
+    const updates = join(directory, 'profile', 'updates');
+    // Checking is off in this profile, so nothing has been looked up or downloaded so far.
+    expect((await update()).phase).toBe('idle');
+    expect(feed!.downloads).toBe(0);
+
+    // Automatic: found shortly after it is switched on, downloaded, verified, and announced.
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.getByRole('tab', { name: '更新' }).click();
+    await expect(ui.locator('#update-current')).toHaveText(`当前版本 ${(await state()).version}`);
+    await ui.locator('#set-updateMode').selectOption('auto');
+    await expect.poll(async () => (await update()).phase, { timeout: 15000 }).toBe('ready');
+    expect(await update()).toMatchObject({ latest: '9.9.9', message: '9.9.9 已下载并通过校验，重启后完成更新。' });
+    await expect(ui.locator('#update-status')).toHaveText('9.9.9 已下载并通过校验，重启后完成更新。');
+    await expect(ui.getByRole('button', { name: process.platform === 'linux' ? '安装更新' : '重启并更新', exact: true })).toBeVisible();
+    await expect(ui.locator('#update-download')).toBeHidden();
+    expect(readdirSync(updates).filter(name => name.includes('9.9.9'))).toHaveLength(1);
+    expect(feed!.downloads).toBe(1);
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(ui.locator('#settings-dot')).toBeVisible();
+
+    // Notify only: after a restart the new version is reported but not fetched.
+    await invoke({ type: 'settings', settings: { updateMode: 'notify' } });
+    feed!.bad = true;
+    await application.close();
+    application = await launch();
+    ui = await management();
+    await expect.poll(async () => (await update()).phase, { timeout: 15000 }).toBe('available');
+    await expect(ui.locator('#toast')).toContainText('发现新版本 9.9.9');
+    await ui.waitForTimeout(1500);
+    expect(feed!.downloads).toBe(1);
+
+    // Manual download of a file that does not match the published checksum: refused and removed.
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.getByRole('tab', { name: '更新' }).click();
+    await ui.getByRole('button', { name: '下载更新', exact: true }).click();
+    await expect.poll(async () => (await update()).phase, { timeout: 15000 }).toBe('error');
+    await expect(ui.locator('#update-status')).toHaveText('下载更新失败：下载的文件与发布的 SHA-256 校验值不一致，已删除');
+    expect(existsSync(updates) ? readdirSync(updates).filter(name => name.includes('9.9.9')) : []).toHaveLength(0);
+    await expect(ui.locator('#update-install')).toBeHidden();
+
+    // Manual check and download with a good checksum.
+    feed!.bad = false;
+    await ui.getByRole('button', { name: '检查更新', exact: true }).click();
+    await expect(ui.getByRole('button', { name: '下载更新', exact: true })).toBeVisible();
+    await ui.getByRole('button', { name: '下载更新', exact: true }).click();
+    await expect.poll(async () => (await update()).phase, { timeout: 15000 }).toBe('ready');
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
+    await invoke({ type: 'settings', settings: { updateMode: 'off' } });
   });
 });

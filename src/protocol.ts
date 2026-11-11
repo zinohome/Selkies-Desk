@@ -4,6 +4,7 @@ import type { Language } from './i18n';
 import { commands, type OS, type Shortcuts } from './platform';
 import type { Layout } from './layout';
 import type { Side } from './fan';
+import type { UpdateState } from './updater';
 
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('state') }).strict(),
@@ -28,6 +29,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   // While the settings page records a new shortcut, key presses must reach it untouched.
   z.object({ type: z.literal('recording'), active: z.boolean() }).strict(),
   z.object({ type: z.literal('thumbnail'), id: connectionID }).strict(),
+  z.object({ type: z.literal('update'), step: z.enum(['check', 'download', 'install', 'notes']) }).strict(),
   z.object({
     type: z.literal('answer'), token: z.uuid(),
     accept: z.boolean(), username: z.string().max(200).optional(),
@@ -65,6 +67,7 @@ export type AppState = {
   ballSide: Side;
   platform: { os: OS; name: string; /** The app draws its own title bar (macOS). */ integratedTitleBar: boolean };
   version: string;
+  update: UpdateState;
   language: Language;
   settings: Settings;
   shortcuts: Shortcuts;

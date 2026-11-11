@@ -1,13 +1,13 @@
 import {
   createElement, PanelLeftOpen, PanelLeftClose, SlidersHorizontal, Settings, RotateCw, Square, Play, Focus,
-  Maximize, Minimize, ChevronUp, Plus, Search, Monitor, Ellipsis, Keyboard, FolderInput, PanelLeft, PanelTop, PanelsTopLeft, X, ChevronRight, ChevronDown, Video
+  Maximize, Minimize, ChevronUp, Plus, Search, Monitor, Ellipsis, Keyboard, FolderInput, PanelLeft, PanelTop, PanelsTopLeft, X, ChevronRight, ChevronDown, Video, CircleArrowUp
 } from 'lucide';
 
 const icons = {
   sidebarOpen: PanelLeftOpen, sidebarClose: PanelLeftClose, connectionSettings: SlidersHorizontal, settings: Settings,
   reconnect: RotateCw, disconnect: Square, connect: Play, focus: Focus, maximize: Maximize, minimize: Minimize,
   collapse: ChevronUp, plus: Plus, search: Search, monitor: Monitor, more: Ellipsis, keyboard: Keyboard, data: FolderInput,
-  panelLeft: PanelLeft, panelTop: PanelTop, regular: PanelsTopLeft, close: X, chevronRight: ChevronRight, chevronDown: ChevronDown, video: Video
+  panelLeft: PanelLeft, panelTop: PanelTop, regular: PanelsTopLeft, close: X, chevronRight: ChevronRight, chevronDown: ChevronDown, video: Video, update: CircleArrowUp
 };
 export type IconName = keyof typeof icons;
 

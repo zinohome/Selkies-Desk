@@ -11,6 +11,9 @@ import { ballBounds, defaultBall, desktopBounds, draggedBall, effectiveLayout, f
 import { acceleratorFromInput, defaultShortcuts, effectiveShortcuts, matchShortcut, shortcutLabel, trustedStorage, validShortcut } from '../src/platform';
 import { retryable, retryDelay } from '../src/retry';
 import { heldPickKeys, storagePrefix, videoStorage } from '../src/video';
+import { compareVersions, installerName, macBundle, macReplaceScript, offerFrom, parseChecksums } from '../src/update';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dictionary, messageKeys, resolveLanguage, setLanguage, t } from '../src/i18n';
 
 const input = { name: '工作台', url: 'https://example.test:8443', group: '开发', notes: '', username: 'alice' };
@@ -264,7 +267,7 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
   const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
   try {
     const store = new Store(directory);
-    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15, shortcuts: {} });
+    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15, updateMode: 'auto', shortcuts: {} });
     store.setSettings({ theme: 'dark', language: 'en', shortcuts: { sidebar: 'Control+Shift+J' } });
     const reopened = new Store(directory);
     assert.equal(reopened.settings.theme, 'dark');
@@ -447,4 +450,62 @@ test('视频设置按 Selkies 网页客户端的键名和单位写入：H.264、
   for (const bad of [{ videoFramerate: 9 }, { videoFramerate: 241 }, { videoBitrate: 0 }, { videoBitrate: 201 }, { videoEncoder: 'mpeg2' }, { videoRateControl: 'vbr' }]) {
     assert.throws(() => settingsPatchSchema.parse(bad));
   }
+});
+
+test('更新：版本比较、按系统选择安装包、拒绝仓库之外的下载地址、解析校验文件', () => {
+  assert.equal(compareVersions('0.4.1', '0.4.0'), 1);
+  assert.equal(compareVersions('v0.10.0', '0.9.9'), 1);
+  assert.equal(compareVersions('0.5', '0.5.0'), 0);
+  assert.equal(compareVersions('0.4.1', '0.5.0'), -1);
+  assert.equal(installerName('0.5.0', 'mac', 'arm64'), 'Selkies-Desk-0.5.0-mac-arm64.zip');
+  assert.equal(installerName('0.5.0', 'mac', 'x64'), 'Selkies-Desk-0.5.0-mac-x64.zip');
+  assert.equal(installerName('0.5.0', 'windows', 'x64'), 'Selkies-Desk-0.5.0-windows-x64-setup.exe');
+  assert.equal(installerName('0.5.0', 'linux', 'x64'), 'selkies-desk_0.5.0_amd64.deb');
+  assert.equal(installerName('0.5.0', 'linux', 'arm64'), undefined);
+  const base = 'https://github.com/zinohome/Selkies-Desk/releases/download/v0.5.0/';
+  const names = ['Selkies-Desk-0.5.0-mac-arm64.zip', 'Selkies-Desk-0.5.0-mac-arm64.dmg', 'Selkies-Desk-0.5.0-windows-x64-setup.exe', 'selkies-desk_0.5.0_amd64.deb', 'SHA256SUMS-0.5.0.txt'];
+  const release = { tag_name: 'v0.5.0', html_url: 'https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.0', assets: names.map(name => ({ name, browser_download_url: base + name, size: 10 })) };
+  assert.deepEqual(offerFrom(release, 'mac', 'arm64'), {
+    version: '0.5.0', notes: release.html_url,
+    installer: { name: names[0], url: base + names[0], size: 10 }, checksums: { name: names[4], url: base + names[4], size: 10 }
+  });
+  assert.equal(offerFrom(release, 'windows', 'x64')?.installer.name, names[2]);
+  assert.equal(offerFrom(release, 'linux', 'x64')?.installer.name, names[3]);
+  // No package for this computer, or no checksum list: nothing is offered.
+  assert.equal(offerFrom(release, 'mac', 'x64'), undefined);
+  assert.equal(offerFrom({ ...release, assets: release.assets.slice(0, 4) }, 'mac', 'arm64'), undefined);
+  // A description that points the download somewhere else is refused.
+  const elsewhere = { ...release, assets: release.assets.map(asset => ({ ...asset, browser_download_url: asset.browser_download_url.replace('github.com/zinohome', 'github.com/someone-else') })) };
+  assert.equal(offerFrom(elsewhere, 'mac', 'arm64'), undefined);
+  assert.equal(offerFrom({ ...release, tag_name: 'nightly' }, 'mac', 'arm64'), undefined);
+  assert.throws(() => offerFrom({ tag_name: 'v1.0.0' }, 'mac', 'arm64'));
+  const sums = parseChecksums(`${'a'.repeat(64)}  ${names[0]}\n${'B'.repeat(64)} *${names[3]}\nnot a checksum line\n`);
+  assert.equal(sums.get(names[0]), 'a'.repeat(64));
+  assert.equal(sums.get(names[3]), 'b'.repeat(64));
+  assert.equal(sums.size, 2);
+  assert.equal(macBundle('/Applications/Selkies Desk.app/Contents/MacOS/Selkies Desk'), '/Applications/Selkies Desk.app');
+  assert.equal(macBundle('/usr/local/bin/selkies-desk'), undefined);
+});
+
+test('更新：macOS 替换脚本换上新应用并清理；新应用放不进去时把旧应用放回原处', { skip: process.platform !== 'darwin' }, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-swap-'));
+  try {
+    const script = join(directory, 'apply.sh');
+    writeFileSync(script, macReplaceScript, { mode: 0o700 });
+    const make = (path: string, mark: string) => { mkdirSync(path, { recursive: true }); writeFileSync(join(path, 'version'), mark); };
+    const app = join(directory, 'Demo App.app');
+    const stage = join(directory, '.stage');
+    make(app, 'old');
+    make(join(stage, 'Demo App.app'), 'new');
+    // A process id that is not running, and /usr/bin/true in place of starting the app.
+    const run = (fresh: string) => execFileSync('/bin/sh', ['-c', `open() { :; }; sed 's#/usr/bin/open#/usr/bin/true#g' "${script}" > "${script}.t" && sh "${script}.t" 999999 "${app}" "${fresh}" "${stage}"`]);
+    run(join(stage, 'Demo App.app'));
+    assert.equal(readFileSync(join(app, 'version'), 'utf8'), 'new');
+    assert.equal(existsSync(stage), false);
+    // The new bundle is missing: the installed app must still be there afterwards.
+    mkdirSync(stage, { recursive: true });
+    run(join(stage, 'Missing.app'));
+    assert.equal(readFileSync(join(app, 'version'), 'utf8'), 'new');
+    assert.equal(existsSync(stage), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

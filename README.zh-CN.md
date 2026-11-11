@@ -1,8 +1,34 @@
-# Selkies Desk 0.4.1
+# Selkies Desk 0.5.0
 
 macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.4.1)，附 `SHA256SUMS-0.4.1.txt` 供核对。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。已发布的版本在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases)，最新发布的是 0.4.1。0.5.0 的安装包已在开发机构建，尚未发布 Release。
+
+## 0.5.0 的变化：应用内更新
+
+- **自动发现**：启动后和之后每 6 小时，向本项目的 GitHub Release 查询是否有新版本。
+- **自动更新**：发现新版本后在后台下载并校验，完成后提示“重启并更新”。
+- **手动更新**：“设置 → 更新”里可以随时检查、下载、安装，或打开发布说明。
+
+更新方式在“设置 → 更新”里三选一：自动下载并提示重启（默认）、只提示有新版本、不检查。有新版本时侧栏的“设置”旁会出现一个圆点。
+
+各系统的安装方式：
+
+| 系统 | 点击安装后 |
+| --- | --- |
+| macOS | 应用退出，后台把应用包换成新版本，再自动启动。原应用先被移到一旁，新版本放不进去时会放回原处 |
+| Windows | 启动下载好的安装程序并退出应用，按安装向导完成 |
+| Ubuntu | 在文件夹中显示下载好的 deb，并给出 `sudo apt install` 命令，需要手动执行 |
+
+安全方面：
+
+- 只从 `github.com/zinohome/Selkies-Desk` 的 Release 下载，发布信息里指向别处的下载地址会被拒绝。
+- 每个下载的文件都与同一 Release 附带的 SHA-256 校验文件比对，不一致就删除、不安装。macOS 上还会确认解压出的应用是同一个应用标识、版本与发布一致、签名完整。
+- 这些检查防的是文件在传输中损坏或被替换。**它不是发布者签名**：应用没有 Apple 或 Windows 的代码签名，更新的可信度最终取决于 GitHub 仓库本身的安全。
+- macOS 应用需要位于可写的文件夹（如“应用程序”）才能自动替换；从磁盘映像或隔离位置直接运行时，会改为在文件夹中显示安装包，请手动安装。
+- 每个新版本的临时签名都不同，更新后首次读取已保存的密码时，macOS 可能要求重新允许访问钥匙串。
+
+0.4.1 及更早版本没有更新功能，需要手动安装一次 0.5.0 或更高版本。
 
 ## 0.4.1 的变化
 
@@ -27,7 +53,7 @@ macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electro
 
 从侧栏底部的“设置”进入，也可按 `⌘⌥,`（Windows / Ubuntu 为 `Ctrl+Alt+,`）。
 
-设置窗口大小固定，左侧分为“通用、会话、快捷键、连接配置”四页。
+设置窗口大小固定，左侧分为“通用、会话、视频、快捷键、更新、连接配置”六页。
 
 | 项目 | 说明 |
 | --- | --- |
@@ -41,6 +67,7 @@ macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electro
 | 把应用菜单快捷键发送给远端 | 默认关闭。开启后退出、关闭窗口、复制粘贴等组合键不再由本应用处理。`⌘Tab` 这类由操作系统保留的按键无法转发 |
 | 视频 | 编码（默认 H.264）、帧率（10–240，默认 45）、码率控制（CBR 固定码率 / CRF 恒定质量，默认 CBR）、码率（1–200 Mbps，默认 15，仅 CBR 时有效）。对所有连接生效，可整体关闭 |
 | 快捷键 | 逐项修改或恢复默认 |
+| 更新 | 当前版本与更新状态；检查更新、下载更新、重启并更新、查看发布说明；更新方式三选一 |
 | 连接配置 | 导入、导出 |
 
 ## 视频设置如何生效
@@ -58,10 +85,10 @@ Selkies 网页客户端把用户在它自己设置面板里选的值保存在浏
 
 | 系统 | 文件 | 安装方式 | 状态 |
 | --- | --- | --- | --- |
-| macOS Apple Silicon | `Selkies-Desk-0.4.1-mac-arm64.dmg` | 拖入“应用程序” | 本机自动化测试通过 |
-| macOS Intel (x64) | `Selkies-Desk-0.4.1-mac-x64.dmg` | 拖入“应用程序” | 已构建，**未运行** |
-| Windows x64 | `Selkies-Desk-0.4.1-windows-x64-setup.exe` | 安装向导，可选安装目录，默认仅当前用户 | 已构建，**未运行** |
-| Ubuntu amd64 | `selkies-desk_0.4.1_amd64.deb` | `sudo apt install ./selkies-desk_0.4.1_amd64.deb` | 已构建，**未运行** |
+| macOS Apple Silicon | `Selkies-Desk-0.5.0-mac-arm64.dmg` | 拖入“应用程序” | 本机自动化测试通过 |
+| macOS Intel (x64) | `Selkies-Desk-0.5.0-mac-x64.dmg` | 拖入“应用程序” | 已构建，**未运行** |
+| Windows x64 | `Selkies-Desk-0.5.0-windows-x64-setup.exe` | 安装向导，可选安装目录，默认仅当前用户 | 已构建，**未运行** |
+| Ubuntu amd64 | `selkies-desk_0.5.0_amd64.deb` | `sudo apt install ./selkies-desk_0.5.0_amd64.deb` | 已构建，**未运行** |
 
 Intel Mac、Windows 和 Ubuntu 的安装包只做了文件结构检查（架构、签名一致性、deb 控制信息和依赖）。开发机没有 Rosetta、Windows 或 Linux 环境，安装、启动、视频解码、输入法、剪贴板和密码保存都需要在对应系统实测。Windows 安装包没有代码签名，SmartScreen 会提示未知发布者。
 
@@ -83,8 +110,8 @@ Ubuntu 的 `Ctrl+Alt+T` 是系统终端快捷键，所以 Windows 和 Ubuntu 的
 
 ## 安装与首次连接（macOS）
 
-1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.4.1.txt` 核对文件。
-2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.4.1-mac-arm64.zip` 使用其中的应用。
+1. 取得本机生成的 DMG 后，使用对应的 `SHA256SUMS-0.5.0.txt` 核对文件。
+2. 打开 DMG，将 **Selkies Desk.app** 拖到“应用程序”，弹出磁盘映像后启动。也可解压 `Selkies-Desk-0.5.0-mac-arm64.zip` 使用其中的应用。
 3. 下载的未公证应用可能被 Gatekeeper 阻止。确认文件来源、校验和与风险后，可使用 macOS 系统提供的单个应用“仍要打开”流程；无需也不要全局关闭 Gatekeeper。若系统报告文件损坏，先重新下载核对校验和，或自行从源码构建。
 4. 点击“新增连接”，填写名称和服务器地址，例如 `https://服务器地址:8443`。不带协议时默认 HTTPS。8443 与 8444 可以分别保存为两个条目。
 5. 点击左侧条目连接。首次自签名证书会显示完整来源（含端口）、错误和 SHA-256 指纹；通过可信渠道核对后再确认。密码只在出现“服务器认证”时输入。

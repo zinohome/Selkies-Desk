@@ -28,7 +28,7 @@ const form = element<HTMLFormElement>('connection-form');
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
 const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys', 'videoApply'] as const;
 const numbers = ['retryCount', 'connectTimeout', 'videoFramerate', 'videoBitrate'] as const;
-const choices = ['videoEncoder', 'videoRateControl'] as const;
+const choices = ['videoEncoder', 'videoRateControl', 'updateMode'] as const;
 let current: AppState;
 let selected: string | undefined;
 /** Connection the user just asked for; it stays selected while the previous session is still closing. */
@@ -247,6 +247,33 @@ async function record(command: Command | undefined) {
   element('shortcut-error').textContent = '';
   await window.desk.invoke({ type: 'recording', active: !!command });
   shortcutRows();
+  updatePane();
+}
+/** The Updates page: where things stand and the one action that makes sense next. */
+function updatePane() {
+  const update = current.update;
+  element('update-current').textContent = t('settings.updateCurrent', { version: update.current });
+  element('update-status').textContent = update.message;
+  element('update-status').classList.toggle('error', update.phase === 'error');
+  const progress = element<HTMLProgressElement>('update-progress');
+  progress.hidden = update.phase !== 'downloading';
+  progress.value = update.progress || 0;
+  button('update-check').disabled = ['checking', 'downloading'].includes(update.phase);
+  button('update-download').hidden = update.phase !== 'available';
+  button('update-install').hidden = update.phase !== 'ready';
+  button('update-install').textContent = t(current.platform.os === 'linux' ? 'settings.updateInstallManual' : 'settings.updateInstall');
+}
+let announced = '';
+/** Tells the user once per version and stage, and marks the way to the Updates page. */
+function updateNotice() {
+  const update = current.update;
+  const waiting = update.phase === 'available' || update.phase === 'ready';
+  element('settings-dot').hidden = !waiting;
+  element('update-dot').hidden = !waiting;
+  const key = waiting ? `${update.phase}:${update.latest}` : '';
+  if (!key || key === announced) return;
+  announced = key;
+  if (!settingsDialog.open) toast(t(update.phase === 'ready' ? 'update.toastReady' : 'update.toastAvailable', { version: update.latest || '' }));
 }
 async function saveShortcut(command: Command, accelerator: string | null) {
   const result = await window.desk.invoke({ type: 'shortcut', command, accelerator });
@@ -268,6 +295,7 @@ function settingsForm() {
   if (current.settings.videoRateControl !== 'cbr') input('set-videoBitrate').disabled = true;
   element('build').textContent = t('settings.version', { version: current.version });
   shortcutRows();
+  updatePane();
 }
 function switcherItems() {
   const search = input('switcher-input').value.trim().toLocaleLowerCase();
@@ -367,6 +395,7 @@ function render(state: AppState) {
     button('revoke-certificate').disabled = !saved.certificateTrusted;
   }
   if (settingsDialog.open) settingsForm();
+  updateNotice();
   if (switcher.open) switcherList();
   prompts();
 }
@@ -513,6 +542,7 @@ button('strip-disconnect').onclick = () => { void invoke({ type: 'disconnect' })
 button('import').onclick = () => { void invoke({ type: 'import' }); };
 button('export').onclick = () => { void invoke({ type: 'export' }); };
 
+for (const step of ['check', 'download', 'install', 'notes'] as const) button(`update-${step}`).onclick = () => { void invoke({ type: 'update', step }); };
 button('settings-close').onclick = () => { void closeModal(settingsDialog); };
 settingsDialog.oncancel = event => {
   event.preventDefault();

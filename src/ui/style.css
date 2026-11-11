@@ -277,3 +277,12 @@ input.switch:checked::after { transform: translateX(16px); }
 #status-time::before { content: "·"; margin-right: 6px; }
 input.number { width: 72px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--text); text-align: right; }
 input.number:disabled { opacity: .45; }
+
+/* Updates */
+.update-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; margin-left: 2px; }
+.settings-nav [role=tab][aria-selected=true] .update-dot { background: var(--on-accent); }
+.update-current { color: var(--text); font-weight: 600; margin: 0 0 4px; }
+.update-status { color: var(--muted); margin: 0 0 10px; min-height: 1.6em; overflow-wrap: anywhere; }
+.update-status.error { color: var(--danger); }
+progress { width: 100%; height: 6px; margin: 0 0 12px; accent-color: var(--accent); }
+.settings-body .update-mode { margin-top: 16px; border-top: 1px solid var(--border); border-bottom: 0; }

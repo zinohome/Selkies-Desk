@@ -19,7 +19,7 @@
       <div class="list-label"><span data-i18n="ui.allConnections"></span><span id="count"></span></div>
       <nav id="connections" data-i18n-attr="aria-label:ui.serverList"></nav>
       <div class="sidebar-bottom">
-        <button id="open-settings" class="nav-item" data-i18n-attr="aria-label:ui.settings"><span data-icon="settings"></span><span data-i18n="ui.settings"></span></button>
+        <button id="open-settings" class="nav-item" data-i18n-attr="aria-label:ui.settings"><span data-icon="settings"></span><span data-i18n="ui.settings"></span><i id="settings-dot" class="update-dot" hidden></i></button>
         <span id="version" class="version"></span>
       </div>
     </aside>
@@ -139,6 +139,7 @@
         <button role="tab" data-pane="session"><span data-icon="monitor"></span><span data-i18n="settings.session"></span></button>
         <button role="tab" data-pane="video"><span data-icon="video"></span><span data-i18n="settings.video"></span></button>
         <button role="tab" data-pane="shortcuts"><span data-icon="keyboard"></span><span data-i18n="settings.shortcuts"></span></button>
+        <button role="tab" data-pane="update"><span data-icon="update"></span><span data-i18n="settings.update"></span><i id="update-dot" class="update-dot" hidden></i></button>
         <button role="tab" data-pane="data"><span data-icon="data"></span><span data-i18n="settings.data"></span></button>
       </div>
       <span class="spacer"></span>
@@ -174,6 +175,21 @@
         <p class="help" data-i18n="settings.shortcutsHelp"></p>
         <div id="shortcut-list" class="shortcut-list"></div>
         <p id="shortcut-error" class="error" role="alert"></p>
+      </section>
+      <section role="tabpanel" data-pane="update" hidden>
+        <p id="update-current" class="update-current"></p>
+        <p id="update-status" class="update-status" role="status"></p>
+        <progress id="update-progress" max="100" value="0" hidden></progress>
+        <div class="button-row">
+          <button id="update-check" data-i18n="settings.updateCheck"></button>
+          <button id="update-download" class="primary" data-i18n="settings.updateDownload" hidden></button>
+          <button id="update-install" class="primary" hidden></button>
+          <button id="update-notes" data-i18n="settings.updateNotes"></button>
+        </div>
+        <label class="setting update-mode"><span data-i18n="settings.updateMode"></span>
+          <select id="set-updateMode"><option value="auto" data-i18n="settings.updateAuto"></option><option value="notify" data-i18n="settings.updateNotify"></option><option value="off" data-i18n="settings.updateOff"></option></select>
+        </label>
+        <p class="help" data-i18n="settings.updateHelp"></p>
       </section>
       <section role="tabpanel" data-pane="data" hidden>
         <p class="help" data-i18n="settings.dataHelp"></p>

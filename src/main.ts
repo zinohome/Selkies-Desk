@@ -11,6 +11,7 @@ import { ballBounds, defaultLayout, desktopBounds, draggedBall, effectiveLayout,
 import { commands, effectiveShortcuts, matchShortcut, osOf, platformName, shortcutLabel, trustedStorage, validShortcut, type Command, type Shortcuts } from './platform';
 import { resolveLanguage, setLanguage, language, t } from './i18n';
 import { Thumbnails } from './thumbnails';
+import { Updater } from './updater';
 
 app.setName('Selkies Desk');
 const os = osOf(process.platform);
@@ -31,6 +32,8 @@ let transitions = Promise.resolve();
 let controls: WebContentsView;
 let controlsExpanded = false;
 let thumbnails: Thumbnails;
+let updater: Updater;
+let updateTimer: NodeJS.Timeout | undefined;
 let recording = false;
 let buttonPosition = '';
 /** Set while the assistive ball is being dragged: where it started and how far it has moved. */
@@ -68,7 +71,7 @@ function state(): AppState {
     fullscreen: window.isFullScreen(), encryptionAvailable,
     layout: remote.visible ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
     platform: { os, name: platformName(os), integratedTitleBar },
-    version: app.getVersion(), language: language(), settings: settings(), shortcuts: keys,
+    version: app.getVersion(), update: updater.state, language: language(), settings: settings(), shortcuts: keys,
     shortcutLabels: Object.fromEntries(commands.map(command => [command, shortcutLabel(os, keys[command])])) as Shortcuts
   };
 }
@@ -160,6 +163,7 @@ async function perform(action: Action): Promise<Result> {
       applyTheme();
       menu();
       remote.applyKeyPolicy();
+      scheduleUpdates();
       publish();
       break;
     }
@@ -177,6 +181,12 @@ async function perform(action: Action): Promise<Result> {
       break;
     }
     case 'recording': recording = action.active; break;
+    case 'update':
+      if (action.step === 'check') void updater.check(settings().updateMode === 'auto');
+      else if (action.step === 'download') void updater.download();
+      else if (action.step === 'install') void updater.install();
+      else updater.openNotes();
+      break;
     case 'thumbnail': return { ok: true, text: settings().thumbnails ? thumbnails.dataURL(action.id) : '' };
     case 'layout': {
       const layout = store.layout;
@@ -244,6 +254,16 @@ async function perform(action: Action): Promise<Result> {
   }
   return { ok: true, state: state() };
 }
+/** Looks for a new version shortly after start and every six hours, unless that is turned off. */
+function scheduleUpdates() {
+  clearInterval(updateTimer);
+  updateTimer = undefined;
+  if (settings().updateMode === 'off') return;
+  const look = () => { void updater.check(settings().updateMode === 'auto'); };
+  updateTimer = setInterval(look, 6 * 60 * 60 * 1000);
+  updateTimer.unref();
+  setTimeout(look, 4000).unref();
+}
 function manage(command: string) {
   window.webContents.send('desk:command', command);
   window.webContents.focus();
@@ -305,6 +325,7 @@ function menu() {
 async function start() {
   store = new Store(app.getPath('userData'));
   thumbnails = new Thumbnails(app.getPath('userData'));
+  updater = new Updater(app.getPath('userData'), os, publish, () => { if (window && !window.isDestroyed()) window.close(); else app.quit(); });
   applyLanguage();
   nativeTheme.themeSource = settings().theme;
   vault = new Vault(app.getPath('userData'), {
@@ -383,6 +404,7 @@ async function start() {
   menu();
   await controls.webContents.loadURL(controlsURL);
   await window.loadURL(uiURL);
+  scheduleUpdates();
   const automatic = store.connections.find(connection => connection.autoConnect);
   if (automatic) void perform({ type: 'connect', id: automatic.id }).catch(() => {});
 }
