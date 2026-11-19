@@ -136,7 +136,7 @@ main { position: relative; min-width: 0; background: var(--bg); }
 .toolbar-hidden .main-header { display: none; }
 /* Layout controls only make sense while a desktop is on screen. */
 .home-visible #toggle-sidebar, .home-visible #focus, .home-visible #toggle-toolbar, .home-visible .action-divider { display: none; }
-.heading { flex: 1; min-width: 60px; }
+.heading { flex: 1; min-width: 0; }
 h1 { font-size: 13px; font-weight: 600; margin: 0; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #address { font-size: 11px; color: var(--faint); margin: 1px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #address:empty { display: none; }
@@ -145,13 +145,14 @@ h1 { font-size: 13px; font-weight: 600; margin: 0; line-height: 1.35; overflow: 
 .status i.loaded { background: var(--ok); }
 .status i.loading, .status i.waiting { background: var(--busy); }
 .status i.failed { background: var(--danger); }
-.actions { display: flex; align-items: center; gap: 2px; }
+.actions { display: flex; flex: none; align-items: center; gap: 2px; }
 .action-divider { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
-/* Slim title strip shown instead of the toolbar in windowed focus mode. */
-.strip { display: none; height: 28px; align-items: center; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
-.titlebar.toolbar-hidden:not(.fullscreen) .strip { display: flex; }
-.titlebar.sidebar-hidden .strip { padding-left: 78px; }
-#strip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34vw; }
+.titlebar.toolbar-hidden:not(.fullscreen) .main-header { display: flex; height: 28px; }
+.main-header.strip #address, .main-header.strip .status { display: none; }
+.main-header.strip h1 { font-size: 12px; font-weight: 500; color: var(--muted); }
+.main-header.strip .icon-button { height: 22px; padding: 3px 6px; border-radius: 5px; }
+.main-header.strip .icon-button svg { width: 16px; height: 16px; }
+.main-header.strip .action-divider { height: 12px; }
 
 .desktop { position: absolute; inset: 52px 0 0; overflow: auto; }
 .toolbar-hidden .desktop { top: 0; }
@@ -259,12 +260,6 @@ input.switch:checked::after { transform: translateX(16px); }
 .settings-body .shortcut-row { padding: 5px 0; border-bottom: 1px solid var(--border); }
 .settings-body .shortcut-row:last-child { border-bottom: 0; }
 .settings-body .button-row { margin-top: 12px; }
-
-/* Session buttons in the slim title strip: same mechanism as the toolbar, so they are never under a floating view. */
-.strip-actions { display: flex; align-items: center; gap: 1px; }
-.strip .icon-button { width: 24px; height: 22px; padding: 3px; border-radius: 5px; }
-.strip .action-divider { height: 12px; margin: 0 4px; }
-#strip-disconnect { color: var(--danger); }
 
 /* Each sidebar row carries its own three-dot button for that connection's settings. */
 .connection-row { position: relative; }

@@ -1,8 +1,16 @@
-# Selkies Desk 0.5.0
+# Selkies Desk 0.5.1
 
 macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证，Windows 包没有代码签名。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。项目仓库由 ZhangJun 创建：[zinohome/Selkies-Desk](https://github.com/zinohome/Selkies-Desk)。安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.0)，附 `SHA256SUMS-0.5.0.txt` 供核对。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。源码与各系统安装包发布在 [GitHub Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.1)，附 `SHA256SUMS-0.5.1.txt` 供核对。
+
+## 0.5.1 的变化：顶栏切换时按钮保持原位
+
+macOS 窗口中，完整顶栏与紧凑标题条共用同一组按钮。右侧顺序固定为“连接设置、重连、断开、连接｜专注或恢复常规、全屏、隐藏或显示工具栏”。侧栏开关始终在标题左侧。
+
+收起顶栏后高度从 52 缩为 28 DIP，图标从 20 缩为 16 DIP；每个按钮的横向中心、间距及距窗口右边缘的距离不变，垂直方向随标题条居中。紧凑状态只显示连接名称，隐藏地址与连接时长。点击最右侧按钮或按 `⌘⌥T` 恢复完整顶栏；“常规模式”恢复侧栏和完整顶栏。全屏仍使用原有悬浮球。
+
+退出正在运行的旧版后，从 GitHub Release 下载 macOS arm64 的 DMG，将应用拖入“应用程序”并确认替换，启动后在设置页确认版本为 0.5.1。配置沿用原版本；首次访问钥匙串可能需要重新授权。源码构建仍使用下文的 `npm ci`、`npm test` 与 `npm run package`。
 
 ## 0.5.0 的变化：应用内更新
 

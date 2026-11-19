@@ -3,7 +3,7 @@ import type { Connection } from '../model';
 import { setLanguage, t, type Language, type MessageKey } from '../i18n';
 import { acceleratorFromInput, commands, type Command } from '../platform';
 import { videoEncoderNames, videoEncoders } from '../video';
-import { icon, renderStaticIcons, renderToolbarIcons, setIcon, type IconName } from './icons';
+import { icon, renderStaticIcons, renderToolbarIcons } from './icons';
 
 declare global {
   interface Window {
@@ -345,9 +345,10 @@ function render(state: AppState) {
   document.body.classList.toggle('titlebar', state.platform.integratedTitleBar);
   document.body.classList.toggle('fullscreen', state.fullscreen);
   document.body.classList.toggle('home-visible', !onDesktop);
+  const compact = !state.layout.toolbar;
+  document.querySelector('.main-header')!.classList.toggle('strip', compact);
   element('title').textContent = connection?.name || 'Selkies Desk';
   element('address').textContent = connection?.url || '';
-  element('strip-title').textContent = connection?.name || 'Selkies Desk';
   element('status').textContent = t(`status.${phase}`);
   element('status-dot').className = phase;
   since = active && phase === 'loaded' ? state.status.since : undefined;
@@ -363,21 +364,13 @@ function render(state: AppState) {
   const fullscreenLabel = t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen');
   button('fullscreen').setAttribute('aria-label', fullscreenLabel);
   button('fullscreen').title = `${fullscreenLabel} · ${keys.fullscreen}`;
-  button('focus').title = t('ui.focus');
-  button('toggle-toolbar').title = `${t('ui.hideToolbar')} · ${keys.toolbar}`;
-  renderToolbarIcons(state.fullscreen, state.layout.sidebar);
-  // The slim title strip of windowed focus mode carries the same session actions as small icons.
-  const stripButton = (id: string, name: IconName, text: string, shortcut = '') => {
-    setIcon(button(id), name, 16);
-    button(id).setAttribute('aria-label', text);
-    button(id).title = shortcut ? `${text} · ${shortcut}` : text;
-  };
-  stripButton('strip-restore', 'regular', t('controls.regular'), keys.focus);
-  stripButton('strip-sidebar', 'panelLeft', sidebarLabel, keys.sidebar);
-  stripButton('strip-toolbar', 'panelTop', t('ui.showToolbar'), keys.toolbar);
-  stripButton('strip-fullscreen', 'maximize', t('ui.enterFullscreen'), keys.fullscreen);
-  stripButton('strip-reconnect', 'reconnect', t('ui.reconnect'), keys.reconnect);
-  stripButton('strip-disconnect', 'disconnect', t('ui.disconnect'));
+  const focusLabel = t(compact ? 'controls.regular' : 'ui.focus');
+  button('focus').setAttribute('aria-label', focusLabel);
+  button('focus').title = `${focusLabel} · ${keys.focus}`;
+  const toolbarLabel = t(compact ? 'ui.showToolbar' : 'ui.hideToolbar');
+  button('toggle-toolbar').setAttribute('aria-label', toolbarLabel);
+  button('toggle-toolbar').title = `${toolbarLabel} · ${keys.toolbar}`;
+  renderToolbarIcons(state.fullscreen, state.layout.sidebar, compact);
   element('home').hidden = onDesktop;
   element('connection-state').hidden = !['failed', 'loading', 'waiting', 'disconnected'].includes(phase);
   element('state-title').textContent = t(`stateTitle.${phase}`);
@@ -532,13 +525,7 @@ button('reconnect').onclick = () => { if (selected) connect(selected); };
 button('fullscreen').onclick = () => { void invoke({ type: 'fullscreen' }); };
 button('toggle-sidebar').onclick = () => { void invoke({ type: 'layout', target: 'sidebar' }); };
 button('toggle-toolbar').onclick = () => { void invoke({ type: 'layout', target: 'toolbar' }); };
-button('focus').onclick = () => { void invoke({ type: 'layout', target: 'focus' }); };
-button('strip-restore').onclick = () => { void invoke({ type: 'layout', target: 'restore' }); };
-button('strip-sidebar').onclick = () => { void invoke({ type: 'layout', target: 'sidebar' }); };
-button('strip-toolbar').onclick = () => { void invoke({ type: 'layout', target: 'toolbar' }); };
-button('strip-fullscreen').onclick = () => { void invoke({ type: 'fullscreen' }); };
-button('strip-reconnect').onclick = () => { if (selected) connect(selected); };
-button('strip-disconnect').onclick = () => { void invoke({ type: 'disconnect' }); };
+button('focus').onclick = () => { void invoke({ type: 'layout', target: current.layout.toolbar ? 'focus' : 'restore' }); };
 button('import').onclick = () => { void invoke({ type: 'import' }); };
 button('export').onclick = () => { void invoke({ type: 'export' }); };
 

@@ -29,11 +29,11 @@ export function renderStaticIcons() {
   }
 }
 export function setIcon(target: HTMLElement, name: IconName, size = 20) { set(target, name, size); }
-export function renderToolbarIcons(fullscreen: boolean, sidebar: boolean) {
+export function renderToolbarIcons(fullscreen: boolean, sidebar: boolean, compact: boolean) {
   const names: Record<string, IconName> = {
     'toggle-sidebar': sidebar ? 'sidebarClose' : 'sidebarOpen',
     settings: 'connectionSettings', reconnect: 'reconnect', disconnect: 'disconnect', connect: 'connect',
-    focus: 'focus', fullscreen: fullscreen ? 'minimize' : 'maximize', 'toggle-toolbar': 'collapse'
+    focus: compact ? 'regular' : 'focus', fullscreen: fullscreen ? 'minimize' : 'maximize', 'toggle-toolbar': compact ? 'panelTop' : 'collapse'
   };
   for (const [id, name] of Object.entries(names)) set(document.getElementById(id)!, name);
 }

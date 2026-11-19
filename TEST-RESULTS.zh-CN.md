@@ -1,6 +1,22 @@
 # Selkies Desk 本机测试结果
 
-## 0.5.0（当前版本）
+## 0.5.1（当前本机测试版本）
+
+测试日期 2026-11-19，macOS 27.2.1 / Apple Silicon arm64，Electron 45.2.3。此次修改仅涉及本地顶栏显示和隐藏时的布局及按钮复用。
+
+- 旧版打包应用成功复现：960 DIP 窗口中，收起顶栏后重连按钮横向中心从 747 变为 911 DIP，移动了 164 DIP。新增回归在修复前按预期失败。
+- `npm test`：26 项单元测试、31 项 Electron E2E 全部通过。原有 macOS 更新替换失败的回滚测试会输出一次预期的 `mv` 失败，测试结果仍为通过。
+- `SELKIES_PACKAGED_PATH="…/Selkies Desk.app/Contents/MacOS/Selkies Desk" npm run test:e2e`：0.5.1 arm64 打包应用 31 项全部通过，无跳过步骤。新回归逐个比较右侧按钮横向中心与顺序，覆盖 960 / 1280 DIP、中英文、侧栏开关共 8 种组合。
+- 验证紧凑标题条内按钮不超出 28 DIP 高度，重新展开后恢复原坐标；紧凑模式可打开并关闭连接编辑，常规模式按钮可恢复两栏；切换中远端输入内容和请求数保持不变。
+- 原有 Electron 回归继续覆盖原生风格鼠标/键盘事件、全屏、悬浮球、认证、证书、会话隔离和更新的本地模拟发布源。
+- `npm run package:all` 完成 macOS arm64/x64 DMG 与 ZIP、Windows x64 安装程序、Ubuntu amd64 deb 构建。两个 macOS 应用 `codesign --verify --deep --strict` 均通过，两个 DMG 的 `hdiutil verify` 均有效，两个 ZIP 压缩检查通过；应用版本为 0.5.1，主程序分别为 arm64 与 x86_64。Windows 文件为 PE32 NSIS 安装程序，Ubuntu 文件为 Debian binary package 2.0。
+- 人工检查了应用内截取的完整顶栏和紧凑标题条截图。交付的证据 ZIP 包含两张对照图、8 组几何数据及源码/打包应用的 Playwright JSON 报告。
+
+本次未验证：真实 Selkies 服务的视频流、中文输入法候选、真人鼠标操作、多显示器，以及 Intel Mac / Windows / Ubuntu 运行。本机自动化使用临时配置和本地模拟服务，未操作用户正在运行的应用或读取其凭据。安装包采用 ad-hoc 签名，未经 Apple Developer ID 签名或公证。
+
+安装和构建见 `README.zh-CN.md` 的 0.5.1 说明；GitHub Release 附件的校验值见 `SHA256SUMS-0.5.1.txt`。
+
+## 0.5.0
 
 测试日期 2026-11-11，同一台 Mac（macOS 27.2 / Apple Silicon）。相对 0.4.1 增加了应用内更新。
 
