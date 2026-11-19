@@ -5,6 +5,8 @@ test-results/
 playwright-report/
 .DS_Store
 .qa/
+.build/
+release-eink/
 .env
 .env.*
 credentials.enc.json
