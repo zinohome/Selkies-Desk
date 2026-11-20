@@ -8,6 +8,8 @@ Selkies 多服务器桌面客户端（macOS / Windows / Ubuntu），使用 Elect
 
 详细安装、操作、安全边界及构建方法见 [中文使用说明](README.zh-CN.md)，实际测试范围见 [测试结果](TEST-RESULTS.zh-CN.md)。
 
+GNOME Wayland 远端若双向剪贴板均无效，且服务日志包含缺少 `ext_data_control_manager_v1` / `zwlr_data_control_manager_v1` 的错误，请参阅 [Linux 服务端剪贴板兼容补丁](compat/gnome-clipboard/README.zh-CN.md)。该补丁单独发布，不改变客户端版本。
+
 ```sh
 npm ci
 npm test

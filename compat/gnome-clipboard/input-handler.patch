@@ -1,0 +1,77 @@
+--- a/selkies/input_handler.py
++++ b/selkies/input_handler.py
+@@ -7942,6 +7942,15 @@
+             one envelope under CLIPBOARD_FLAVOURS_MIME, images as bytes with
+             their mime, or (None, None) when nothing is readable.
+         """
++        if self._uses_xwayland_clipboard():
++            monitor = await self._ensure_x11_clipboard_monitor_async()
++            if monitor is None:
++                return None, None
++            try:
++                return await asyncio.to_thread(monitor.read, use_binary)
++            except Exception as error:
++                logger_webrtc_input.warning(f"XWayland clipboard read failed: {error}")
++                return None, None
+         if self.is_wayland:
+             monitor = await self._ensure_x11_clipboard_monitor_async()
+             if monitor is not None and not monitor.owns_selection():
+@@ -8189,6 +8198,15 @@
+         if isinstance(data, SecretText):
+             entries += [(hint, b"secret") for hint in CLIPBOARD_SECRET_HINTS]
+-
++
++        if self._uses_xwayland_clipboard():
++            monitor = await self._ensure_x11_clipboard_monitor_async()
++            if monitor is None:
++                return False
++            try:
++                return bool(await asyncio.to_thread(monitor.offer, entries))
++            except Exception as error:
++                logger_webrtc_input.warning(f"XWayland clipboard offer failed: {error}")
++                return False
+         if self.is_wayland:
+             if not self._has_separate_app_compositor():
+                 try:
+@@ -8273,6 +8291,11 @@
+         except Exception:
+             logger_webrtc_input.warning("Error writing to clipboard with xclip", exc_info=True)
+             return False
++    def _uses_xwayland_clipboard(self) -> bool:
++        return (self.is_wayland
++                and os.environ.get("SELKIES_CLIPBOARD_XWAYLAND") == "1"
++                and self._has_separate_app_compositor())
++
+     def _x11_session_display(self) -> Optional[str]:
+         """Display of an X server whose selections nothing bridges into the
+         Wayland session: on the Wayland backend without a nested session
+@@ -8283,7 +8306,8 @@
+         the X11 backend the display is the session itself, so both answer None.
+         The server must be an Xwayland (not a leftover Xvfb/Xorg that merely
+         holds the display number), or nothing on it belongs to this session."""
+-        if not self.is_wayland or self._has_separate_app_compositor():
++        if not self.is_wayland or (self._has_separate_app_compositor()
++                                   and not self._uses_xwayland_clipboard()):
+             return None
+         name = os.environ.get("DISPLAY", "").strip()
+         if not name or not x_display_live(name) or not x_display_is_xwayland(name):
+@@ -8506,7 +8530,8 @@
+                 try:
+                     wl_native_item = None
+                     from_edge = False
+-                    if self.is_wayland and self._has_separate_app_compositor():
++                    if (self.is_wayland and self._has_separate_app_compositor()
++                            and not self._uses_xwayland_clipboard()):
+                         if x11_monitor is not None:
+                             # A nested session compositor appeared: its XWM bridges
+                             # its own Xwayland, so the app-compositor watch takes over.
+@@ -8521,7 +8546,8 @@
+                             q = await self._arm_app_compositor_watch()
+                             if q is not None:
+                                 app_watch_queue, app_watch_display = q, disp
+-                    elif self.is_wayland and wl_native_queue is None:
++                    elif (self.is_wayland and wl_native_queue is None
++                          and not self._has_separate_app_compositor()):
+                         # Direct mode reached only now (a nested compositor died
+                         # or never appeared): arm the compositor callback late.
+                         wl_native_queue = self._arm_wayland_native_clipboard()
