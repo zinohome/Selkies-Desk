@@ -1,8 +1,18 @@
-# Selkies Desk 0.5.1
+# Selkies Desk 0.5.2
 
 macOS、Windows 和 Ubuntu 上的 Selkies 多服务器客户端。使用 Electron 内嵌服务器自己的网页，保留 Selkies 的视频、输入、显示设置、剪贴板和文件入口。左侧管理连接，右侧显示当前网页；同时只保留一个活动页面。
 
-此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。源码与各系统安装包发布在 [GitHub Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.1)，附 `SHA256SUMS-0.5.1.txt` 供核对。
+此版为测试版，只有 **Apple Silicon / arm64 的 macOS 包经过本机测试**，没有 Apple Developer ID 签名或公证。采用本地 ad-hoc 临时签名保证应用包内部一致性，不代表 Apple 验证了开发者身份。源码与本次 macOS arm64 安装包发布在 [GitHub Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.2)，附 `SHA256SUMS-0.5.2.txt` 供核对。
+
+## 0.5.2 的变化：macOS 菜单栏驻留
+
+- 点红色关闭按钮或按 `⌘W`：隐藏主窗口，应用和当前连接继续运行，远端页面不重新加载。后台连接仍会使用网络及相应资源；需要释放连接时使用“断开当前服务器”。
+- 菜单栏增加适应系统亮暗外观的单色显示器图标。左键点击打开主窗口；已最小化时先恢复，窗口已打开时将其置前。
+- 右键点击图标显示当前连接状态，以及“打开主窗口、重连当前服务器、断开当前服务器、设置、退出 Selkies Desk”。没有连接时相关操作不可用。
+- 点击 Dock 图标或再次启动应用，也会恢复原窗口，不创建第二个会话。保留 Dock 图标，方便通过 `⌘Tab` 返回。
+- “退出 Selkies Desk”或 `⌘Q` 会释放活动连接并结束进程；“重启并更新”也会真正退出，不会停在隐藏状态。如果开启了“把应用菜单快捷键发送给远端”，请从菜单栏图标右键菜单退出。
+
+退出旧版后安装 0.5.2，已有连接配置继续使用。菜单栏驻留仅作用于 macOS；Windows / Ubuntu 保持关闭窗口退出的行为。
 
 ## 0.5.1 的变化：顶栏切换时按钮保持原位
 

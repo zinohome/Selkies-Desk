@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, session, type Event, type Input, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, Tray, nativeImage, nativeTheme, safeStorage, screen, session, type Event, type Input, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +28,7 @@ let vault: Vault;
 let remote: Remote;
 let encryptionAvailable = false;
 let quitting = false;
+let tray: Tray | undefined;
 let transitions = Promise.resolve();
 let controls: WebContentsView;
 let controlsExpanded = false;
@@ -77,6 +78,7 @@ function state(): AppState {
 }
 function publish() {
   if (window && !window.isDestroyed() && remote) {
+    if (tray && !tray.isDestroyed()) tray.setToolTip(`Selkies Desk — ${t(`status.${remote.status.phase}`)}`);
     window.webContents.send('desk:state', state());
     if (controls && !controls.webContents.isDestroyed()) {
       controls.webContents.send('desk:state', state());
@@ -264,7 +266,43 @@ function scheduleUpdates() {
   updateTimer.unref();
   setTimeout(look, 4000).unref();
 }
+function showWindow() {
+  if (!window || window.isDestroyed() || quitting) return;
+  if (os === 'mac') app.show();
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+function saveWindow() {
+  if (!window || window.isDestroyed() || !store) return;
+  const { width, height } = window.getNormalBounds();
+  store.setWindow(width, height);
+}
+function createTray() {
+  if (os !== 'mac') return;
+  const image = nativeImage.createFromPath(join(__dirname, 'assets/trayTemplate.png'));
+  if (image.isEmpty()) throw Error('The menu bar icon could not be loaded.');
+  image.setTemplateImage(true);
+  tray = new Tray(image);
+  tray.setToolTip('Selkies Desk');
+  tray.setIgnoreDoubleClickEvents(true);
+  tray.on('click', showWindow);
+  tray.on('right-click', () => {
+    const connection = store.connections.find(connection => connection.id === remote.activeID);
+    tray!.popUpContextMenu(Menu.buildFromTemplate([
+      { label: connection ? `${connection.name} — ${t(`status.${remote.status.phase}`)}` : t(`status.${remote.status.phase}`), enabled: false },
+      { label: t('menu.open'), click: showWindow },
+      { type: 'separator' },
+      { label: t('menu.reconnect'), enabled: !!remote.activeID, click: () => { void perform({ type: 'reconnect' }); } },
+      { label: t('menu.disconnect'), enabled: !!remote.activeID && remote.status.phase !== 'disconnected', click: () => { void perform({ type: 'disconnect' }); } },
+      { type: 'separator' },
+      { label: t('menu.settings'), click: () => manage('settings') },
+      { label: t('menu.quit'), click: () => app.quit() }
+    ]));
+  });
+}
 function manage(command: string) {
+  showWindow();
   window.webContents.send('desk:command', command);
   window.webContents.focus();
 }
@@ -319,13 +357,17 @@ function menu() {
       { label: t('menu.regular'), click: () => { void perform({ type: 'layout', target: 'restore' }); } },
       { type: 'separator' }, item('fullscreen', t('menu.fullscreen'))
     ] },
-    { label: t('menu.window'), submenu: [{ role: 'minimize', label: t('menu.minimize') }, ...(mac ? [{ role: 'zoom', label: t('menu.zoom') } as MenuItemConstructorOptions] : [])] }
+    { label: t('menu.window'), submenu: [{ role: 'minimize', label: t('menu.minimize') }, ...(mac ? [
+      { role: 'zoom', label: t('menu.zoom') } as MenuItemConstructorOptions,
+      { role: 'close', label: t('menu.close') } as MenuItemConstructorOptions,
+      { label: t('menu.open'), click: showWindow }
+    ] : [])] }
   ]));
 }
 async function start() {
   store = new Store(app.getPath('userData'));
   thumbnails = new Thumbnails(app.getPath('userData'));
-  updater = new Updater(app.getPath('userData'), os, publish, () => { if (window && !window.isDestroyed()) window.close(); else app.quit(); });
+  updater = new Updater(app.getPath('userData'), os, publish, () => app.quit());
   applyLanguage();
   nativeTheme.themeSource = settings().theme;
   vault = new Vault(app.getPath('userData'), {
@@ -395,13 +437,13 @@ async function start() {
   window.on('close', event => {
     if (quitting) return;
     event.preventDefault();
-    quitting = true;
-    const [width, height] = window.getNormalBounds() ? [window.getNormalBounds().width, window.getNormalBounds().height] : window.getSize();
-    store.setWindow(width, height);
-    void transition(() => remote.disconnect()).finally(() => window.destroy());
+    saveWindow();
+    if (os === 'mac' && tray && !tray.isDestroyed()) window.hide();
+    else app.quit();
   });
   window.once('ready-to-show', () => window.show());
   menu();
+  createTray();
   await controls.webContents.loadURL(controlsURL);
   await window.loadURL(uiURL);
   scheduleUpdates();
@@ -409,7 +451,17 @@ async function start() {
   if (automatic) void perform({ type: 'connect', id: automatic.id }).catch(() => {});
 }
 if (locked) {
-  app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } });
+  app.on('activate', showWindow);
+  app.on('second-instance', showWindow);
+  app.on('before-quit', event => {
+    if (quitting || !remote) return;
+    event.preventDefault();
+    quitting = true;
+    clearInterval(updateTimer);
+    saveWindow();
+    void transition(() => remote.disconnect()).finally(() => app.quit());
+  });
+  app.on('will-quit', () => { if (tray && !tray.isDestroyed()) tray.destroy(); });
   app.on('window-all-closed', () => app.quit());
   app.whenReady().then(start).catch(() => {
     dialog.showErrorBox(t('error.startTitle'), t('error.startBody'));
