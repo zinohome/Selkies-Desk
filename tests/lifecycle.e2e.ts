@@ -25,6 +25,12 @@ test('macOS 菜单栏左右键、后台会话、恢复窗口、中英文菜单�
     await expect.poll(() => application.windows().some(page => page.url().endsWith('/index.html'))).toBe(true);
     const ui = application.windows().find(page => page.url().endsWith('/index.html'))!;
     const invoke = (action: unknown) => ui.evaluate(action => (window as any).desk.invoke(action), action);
+    const dockVisible = () => application.evaluate(({ app }) => app.dock!.isVisible());
+    expect(await dockVisible()).toBe(true);
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.locator('#set-hideDockIcon').check();
+    await expect.poll(dockVisible).toBe(false);
+    await ui.getByRole('button', { name: '关闭', exact: true }).click();
     await application.evaluate(({ Tray }) => {
       const original = Tray.prototype.setToolTip;
       (globalThis as any).originalTrayTooltip = original;
@@ -74,6 +80,7 @@ test('macOS 菜单栏左右键、后台会话、恢复窗口、中英文菜单�
     expect(await visible()).toBe(false);
     await application.evaluate(() => { (globalThis as any).testTray.emit('click'); });
     await expect.poll(visible).toBe(true);
+    expect(await dockVisible()).toBe(false);
     await closeWindow();
     await application.evaluate(({ app }) => { app.emit('activate'); });
     await expect.poll(visible).toBe(true);
@@ -101,6 +108,19 @@ test('macOS 菜单栏左右键、后台会话、恢复窗口、中英文菜单�
     expect(await popup()).toContainEqual({ label: 'Open Main Window', enabled: true });
     await choose('Open Main Window');
     await expect.poll(visible).toBe(true);
+    expect(await dockVisible()).toBe(false);
+    await popup();
+    await choose('Settings…');
+    await expect(ui.locator('#set-hideDockIcon')).toBeChecked();
+    await expect(ui.getByText('Hide Dock icon', { exact: true })).toBeVisible();
+    await ui.locator('#set-hideDockIcon').uncheck();
+    await expect.poll(dockVisible).toBe(true);
+    for (const hidden of [true, false, true]) {
+      const result = await invoke({ type: 'settings', settings: { hideDockIcon: hidden } });
+      expect(result.ok).toBe(true);
+      await expect.poll(dockVisible).toBe(!hidden);
+    }
+    await ui.getByRole('button', { name: 'Close', exact: true }).click();
     await closeWindow();
     await popup();
     const closed = application.waitForEvent('close');
@@ -111,6 +131,48 @@ test('macOS 菜单栏左右键、后台会话、恢复窗口、中英文菜单�
   } finally {
     if (!exited) await application.close();
     await server.stop();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('macOS 隐藏 Dock 偏好重启后保留，关闭选项恢复图标', async () => {
+  test.skip(process.platform !== 'darwin', 'macOS Dock');
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-dock-'));
+  const profile = join(directory, 'profile');
+  mkdirSync(profile);
+  writeFileSync(join(profile, 'connections.json'), JSON.stringify({
+    version: 1, connections: [], certificates: {},
+    settings: { language: 'zh', updateMode: 'off' }
+  }));
+  const launch = () => electron.launch({
+    ...(process.env.SELKIES_PACKAGED_PATH ? { executablePath: process.env.SELKIES_PACKAGED_PATH } : {}),
+    args: [...(process.env.SELKIES_PACKAGED_PATH ? [] : [resolve('.')]), `--user-data-dir=${profile}`],
+    colorScheme: null
+  });
+  let application = await launch();
+  const mainPage = async () => {
+    await expect.poll(() => application.windows().some(page => page.url().endsWith('/index.html'))).toBe(true);
+    return application.windows().find(page => page.url().endsWith('/index.html'))!;
+  };
+  try {
+    let ui = await mainPage();
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await ui.locator('#set-hideDockIcon').check();
+    await expect.poll(() => application.evaluate(({ app }) => app.dock!.isVisible())).toBe(false);
+    await application.close();
+    application = await launch();
+    ui = await mainPage();
+    await expect.poll(() => application.evaluate(({ app }) => app.dock!.isVisible())).toBe(false);
+    await ui.getByRole('button', { name: '设置', exact: true }).click();
+    await expect(ui.locator('#set-hideDockIcon')).toBeChecked();
+    await ui.locator('#set-hideDockIcon').uncheck();
+    await expect.poll(() => application.evaluate(({ app }) => app.dock!.isVisible())).toBe(true);
+    await application.close();
+    application = await launch();
+    await mainPage();
+    await expect.poll(() => application.evaluate(({ app }) => app.dock!.isVisible())).toBe(true);
+  } finally {
+    await application.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });

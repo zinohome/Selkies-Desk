@@ -267,7 +267,7 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
   const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
   try {
     const store = new Store(directory);
-    assert.deepEqual(store.settings, { language: 'system', theme: 'system', autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15, updateMode: 'auto', shortcuts: {} });
+    assert.deepEqual(store.settings, { language: 'system', theme: 'system', hideDockIcon: false, autoFocus: true, autoReconnect: true, retryCount: 6, connectTimeout: 20, thumbnails: true, passSystemKeys: false, videoApply: true, videoEncoder: 'h264enc', videoFramerate: 45, videoRateControl: 'cbr', videoBitrate: 15, updateMode: 'auto', shortcuts: {} });
     store.setSettings({ theme: 'dark', language: 'en', shortcuts: { sidebar: 'Control+Shift+J' } });
     const reopened = new Store(directory);
     assert.equal(reopened.settings.theme, 'dark');
@@ -281,6 +281,14 @@ test('设置有默认值并持久化，不随连接配置导出；旧配置文�
     store.setSettings(settingsPatchSchema.parse({ theme: 'light' }));
     assert.equal(store.settings.autoFocus, false);
     assert.throws(() => settingsPatchSchema.parse({ shortcuts: {} }));
+    store.setSettings(settingsPatchSchema.parse({ hideDockIcon: true }));
+    assert.equal(new Store(directory).settings.hideDockIcon, true);
+    store.setSettings(settingsPatchSchema.parse({ theme: 'dark' }));
+    assert.equal(new Store(directory).settings.hideDockIcon, true);
+    store.setSettings(settingsPatchSchema.parse({ hideDockIcon: false }));
+    assert.equal(new Store(directory).settings.hideDockIcon, false);
+    assert.equal(store.export().includes('hideDockIcon'), false);
+    assert.throws(() => settingsPatchSchema.parse({ hideDockIcon: 'true' }));
     // Retry count and timeout are whole numbers within sensible bounds.
     store.setSettings(settingsPatchSchema.parse({ retryCount: 3, connectTimeout: 45 }));
     assert.deepEqual([new Store(directory).settings.retryCount, new Store(directory).settings.connectTimeout], [3, 45]);

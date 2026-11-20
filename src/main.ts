@@ -2,6 +2,7 @@ import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, Tray, nativ
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { Store, matchesOrigin, parseImport } from './model';
 import { Vault } from './vault';
@@ -29,6 +30,7 @@ let remote: Remote;
 let encryptionAvailable = false;
 let quitting = false;
 let tray: Tray | undefined;
+let lastDockShow = 0;
 let transitions = Promise.resolve();
 let controls: WebContentsView;
 let controlsExpanded = false;
@@ -160,6 +162,7 @@ async function perform(action: Action): Promise<Result> {
     case 'settings': {
       const hadThumbnails = settings().thumbnails;
       store.setSettings(action.settings);
+      await transition(applyDock);
       if (hadThumbnails && !settings().thumbnails) thumbnails.clear();
       applyLanguage();
       applyTheme();
@@ -272,6 +275,19 @@ function showWindow() {
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
+}
+async function applyDock() {
+  if (os !== 'mac' || !tray || tray.isDestroyed()) return;
+  if (settings().hideDockIcon && app.dock!.isVisible()) {
+    const remaining = lastDockShow + 1100 - Date.now();
+    if (remaining > 0) await delay(remaining);
+    if (settings().hideDockIcon) {
+      app.dock!.hide();
+    }
+  } else if (!settings().hideDockIcon && !app.dock!.isVisible()) {
+    lastDockShow = Date.now();
+    await app.dock!.show();
+  }
 }
 function saveWindow() {
   if (!window || window.isDestroyed() || !store) return;
@@ -444,6 +460,7 @@ async function start() {
   window.once('ready-to-show', () => window.show());
   menu();
   createTray();
+  await applyDock();
   await controls.webContents.loadURL(controlsURL);
   await window.loadURL(uiURL);
   scheduleUpdates();

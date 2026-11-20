@@ -1,5 +1,20 @@
 # Selkies Desk 本机测试结果
 
+## 0.5.3：隐藏 Dock 图标（2026-11-20）
+
+系统为 macOS 27.2.1 / Apple Silicon arm64，Electron 45.2.3。此次仅构建 macOS arm64 安装包。
+
+- `npm test` 通过：26 项单元测试、TypeScript 检查与构建、33 项 Electron 端到端测试。
+- 默认显示 Dock；设置页开启后实际 `app.dock.isVisible()` 为 false，关闭后为 true。覆盖中英文界面、快速开关、保存后退出重启，以及恢复显示后再重启。
+- Dock 隐藏时，菜单栏打开窗口、设置入口、后台断开与重连、退出仍可用；恢复窗口后 Dock 仍隐藏。已有远端 WebContents、页面输入及连接按生命周期回归验证保留。
+- 旧配置默认显示 Dock；修改其他设置不会重置隐藏偏好。拒绝非布尔值，连接配置导出不包含该本机设置。
+- 新测试先在旧实现确认缺少设置字段与界面开关。快速开关另复现了 Dock 显示后立即隐藏无效；应用串行处理 Dock 变更，并在刚显示后的隐藏操作前等待必要间隔。
+- `npm run package` 生成 macOS arm64 DMG / ZIP；打包应用的两项生命周期回归复测通过。首次运行菜单栏用例曾在启动阶段超过 45 秒并发生 worker 清理超时，未定位具体原因；未修改代码即复测两项通过（9.2 秒）。此现象保留记录，不计作首次通过。
+- 独立启动打包应用，通过 AppKit 从进程外读取 `NSRunningApplication.activationPolicy`：普通为 0，开启后为 1，关闭后恢复 0。检查了中英文设置截图，开关和说明均可见。使用隔离配置，没有替换或退出用户正在运行的应用。
+- `codesign --verify --deep --strict` 和 `hdiutil verify` 通过；安装包采用 ad-hoc 签名，未公证。完成差异自审，本轮没有独立代码审查子代理。
+
+自动化通过实际 Electron Dock API 检查状态，菜单栏左右键使用真实 Tray 事件及菜单回调；物理鼠标点击系统 Dock / 菜单栏和 `⌘Tab` 列表尚未逐项实测。其他系统和架构未运行，此次未扩大真实服务器兼容性结论。修改未增加依赖或远端页面权限。
+
 ## 0.5.2：macOS 菜单栏驻留（2026-11-20）
 
 系统为 macOS 27.2.1 / Apple Silicon arm64，Electron 45.2.3。此次仅构建 macOS arm64 安装包。

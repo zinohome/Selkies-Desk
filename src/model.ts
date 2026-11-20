@@ -40,6 +40,7 @@ const themeSetting = z.enum(['system', 'light', 'dark']);
 export const settingsSchema = z.object({
   language: languageSetting.default('system'),
   theme: themeSetting.default('system'),
+  hideDockIcon: z.boolean().default(false),
   autoFocus: z.boolean().default(true),
   autoReconnect: z.boolean().default(true),
   /** How many times a lost connection is retried before giving up. */
@@ -65,6 +66,7 @@ export type Settings = z.infer<typeof settingsSchema>;
 export const settingsPatchSchema = z.object({
   language: languageSetting.optional(),
   theme: themeSetting.optional(),
+  hideDockIcon: z.boolean().optional(),
   autoFocus: z.boolean().optional(),
   autoReconnect: z.boolean().optional(),
   retryCount: z.number().int().min(1).max(20).optional(),

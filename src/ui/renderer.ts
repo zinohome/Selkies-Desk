@@ -26,7 +26,7 @@ const settingsDialog = element<HTMLDialogElement>('settings-dialog');
 const switcher = element<HTMLDialogElement>('switcher');
 const form = element<HTMLFormElement>('connection-form');
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
-const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys', 'videoApply'] as const;
+const toggles = ['autoFocus', 'autoReconnect', 'thumbnails', 'passSystemKeys', 'videoApply', 'hideDockIcon'] as const;
 const numbers = ['retryCount', 'connectTimeout', 'videoFramerate', 'videoBitrate'] as const;
 const choices = ['videoEncoder', 'videoRateControl', 'updateMode'] as const;
 let current: AppState;
@@ -282,6 +282,7 @@ async function saveShortcut(command: Command, accelerator: string | null) {
   element('shortcut-error').textContent = result.ok ? '' : result.error || t('error.failed');
 }
 function settingsForm() {
+  element('dock-setting').hidden = current.platform.os !== 'mac';
   element<HTMLSelectElement>('set-language').value = current.settings.language;
   element<HTMLSelectElement>('set-theme').value = current.settings.theme;
   for (const name of toggles) input(`set-${name}`).checked = current.settings[name];
