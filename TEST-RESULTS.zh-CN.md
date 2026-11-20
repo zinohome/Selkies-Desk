@@ -1,5 +1,17 @@
 # Selkies Desk 本机测试结果
 
+## 0.5.4：菜单栏使用应用图标（2026-11-20）
+
+系统为 macOS 27.2.1 / Apple Silicon arm64，Electron 45.2.3。此次仅构建 macOS arm64 安装包。
+
+- 新增回归先在旧显示器轮廓图标上失败：18×18 菜单栏资源与主图标缩放结果的平均像素差为 86.76，超过 25。改为从同一 `icon.png` 生成 1x / 2x 菜单栏资源后，源码模式像素差低于 25，并检查尺寸一致。
+- 复查发现仍命名为 `trayTemplate.png` 时 Electron 自动把资源判为模板图，菜单栏会渲染成单色；新增断言 `isTemplateImage()` 必须为 false，该断言先失败，重命名为普通 `tray.png` / `tray@2x.png` 后通过。
+- 菜单栏图标视觉检查为青绿色圆角方块和双波浪，与 Dock 主图标同源；左右键、后台会话、Dock 隐藏与恢复、中英文菜单和退出生命周期不回退。
+- 最终 `npm test` 通过：26 项单元测试、TypeScript 检查与构建、33 项 Electron 端到端测试。此前同一打包用例曾出现一次 45 秒启动超时，未改代码复测通过；最终重打包后的两项生命周期回归再次通过。
+- `npm run package` 生成 macOS arm64 DMG / ZIP；打包应用断言菜单栏资源不是模板且中心像素保持彩色。`codesign --verify --deep --strict` 和 `hdiutil verify` 通过。
+
+自动化覆盖资源同源、彩色渲染和真实 Tray 行为，但未用物理鼠标逐项点击菜单栏图标；不同显示器缩放和系统辅助对比度设置未逐一实测。安装包采用 ad-hoc 签名，未公证。
+
 ## 0.5.3：隐藏 Dock 图标（2026-11-20）
 
 系统为 macOS 27.2.1 / Apple Silicon arm64，Electron 45.2.3。此次仅构建 macOS arm64 安装包。

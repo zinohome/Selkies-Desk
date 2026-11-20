@@ -25,6 +25,28 @@ test('macOS 菜单栏左右键、后台会话、恢复窗口、中英文菜单�
     await expect.poll(() => application.windows().some(page => page.url().endsWith('/index.html'))).toBe(true);
     const ui = application.windows().find(page => page.url().endsWith('/index.html'))!;
     const invoke = (action: unknown) => ui.evaluate(action => (window as any).desk.invoke(action), action);
+    const iconMetrics = await application.evaluate(({ app, nativeImage }, dockPath) => {
+      const tray = nativeImage.createFromPath(`${app.getAppPath()}/dist/assets/tray.png`);
+      const trayPixels = tray.toBitmap();
+      const colorfulness = (offset: number) => {
+        const channels = [trayPixels[offset], trayPixels[offset + 1], trayPixels[offset + 2]];
+        return Math.max(...channels) - Math.min(...channels);
+      };
+      const difference = dockPath ? (() => {
+        const dock = nativeImage.createFromPath(dockPath).resize({ width: 18, height: 18 });
+        const dockPixels = dock.toBitmap();
+        let total = 0;
+        for (let offset = 0; offset < trayPixels.length; offset += 4) {
+          for (let channel = 0; channel < 4; channel++) total += Math.abs(trayPixels[offset + channel] - dockPixels[offset + channel]);
+        }
+        return total / (18 * 18 * 4);
+      })() : undefined;
+      return { size: tray.getSize(), template: tray.isTemplateImage(), difference, centerColorfulness: colorfulness((9 * 18 + 9) * 4) };
+    }, process.env.SELKIES_PACKAGED_PATH ? undefined : resolve('assets/icon.png'));
+    expect(iconMetrics.size).toEqual({ width: 18, height: 18 });
+    expect(iconMetrics.template).toBe(false);
+    if (!process.env.SELKIES_PACKAGED_PATH) expect(iconMetrics.difference).toBeLessThan(25);
+    else expect(iconMetrics.centerColorfulness).toBeGreaterThan(20);
     const dockVisible = () => application.evaluate(({ app }) => app.dock!.isVisible());
     expect(await dockVisible()).toBe(true);
     await ui.getByRole('button', { name: '设置', exact: true }).click();

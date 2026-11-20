@@ -296,9 +296,8 @@ function saveWindow() {
 }
 function createTray() {
   if (os !== 'mac') return;
-  const image = nativeImage.createFromPath(join(__dirname, 'assets/trayTemplate.png'));
+  const image = nativeImage.createFromPath(join(__dirname, 'assets/tray.png'));
   if (image.isEmpty()) throw Error('The menu bar icon could not be loaded.');
-  image.setTemplateImage(true);
   tray = new Tray(image);
   tray.setToolTip('Selkies Desk');
   tray.setIgnoreDoubleClickEvents(true);
