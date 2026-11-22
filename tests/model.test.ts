@@ -284,6 +284,16 @@ test('中英文词条一一对应，占位符一致；语言跟随系统或手�
   assert.equal(t('import.confirmMessage', { count: 3 }), '将 3 个条目作为新连接添加？');
 });
 
+test('界面 HTML 引用的文案键都存在，避免翻译遍历中断', () => {
+  const html = readFileSync('src/ui/index.html', 'utf8');
+  const keys = [...html.matchAll(/data-i18n="([^"]+)"/g)].map(match => match[1]);
+  for (const attributes of [...html.matchAll(/data-i18n-attr="([^"]+)"/g)].map(match => match[1])) {
+    for (const pair of attributes.split(';')) keys.push(pair.split(':')[1]);
+  }
+  assert.ok(keys.length > 100);
+  for (const key of keys) assert.ok((dictionary('zh') as Record<string, string>)[key], key);
+});
+
 test('设置有默认值并持久化，不随连接配置导出；旧配置文件可直接读取', () => {
   const directory = mkdtempSync(join(tmpdir(), 'selkies-settings-'));
   try {
