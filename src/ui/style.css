@@ -155,6 +155,12 @@ h1 { font-size: 13px; font-weight: 600; margin: 0; line-height: 1.35; overflow: 
 .main-header.strip .action-divider { height: 12px; }
 
 .desktop { position: absolute; inset: 52px 0 0; overflow: auto; }
+.magpie-tabs { position: absolute; z-index: 30; left: 232px; right: 12px; top: 8px; display: flex; align-items: center; gap: 6px; overflow: auto; }
+body.sidebar-hidden .magpie-tabs { left: 12px; }
+.magpie-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; border: 1px solid var(--border); border-radius: 999px; background: color-mix(in srgb, var(--panel) 88%, transparent); padding: 5px 10px; color: var(--text); font-size: 12px; }
+.magpie-tab[aria-selected=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--panel)); }
+.magpie-close { border-radius: 999px; padding: 0 3px; color: var(--faint); }
+.magpie-close:hover { color: var(--text); background: var(--hover); }
 .toolbar-hidden .desktop { top: 0; }
 .titlebar.toolbar-hidden:not(.fullscreen) .desktop { top: 28px; }
 

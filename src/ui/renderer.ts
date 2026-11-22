@@ -40,6 +40,12 @@ let recording: Command | undefined;
 let switcherIndex = 0;
 let toastTimer: ReturnType<typeof setTimeout>;
 const previews = new Map<string, { stamp: number; url: string }>();
+function publicURL(connection: Entry) {
+  try {
+    const parsed = new URL(connection.url);
+    return connection.kind === 'magpie' ? parsed.origin : parsed.href;
+  } catch { return connection.url; }
+}
 /** Names of the sidebar groups the user has folded; remembered on this computer. */
 const collapsed = new Set<string>(loadCollapsed());
 function loadCollapsed(): string[] {
@@ -137,7 +143,7 @@ function list() {
       const row = document.createElement('button');
       row.className = `connection-button${connection.id === selected ? ' selected' : ''}`;
       row.setAttribute('aria-label', connection.name);
-      row.title = connection.url;
+  row.title = publicURL(connection);
       const tile = document.createElement('span');
       tile.className = 'server-icon';
       tile.append(icon('monitor', 16));
@@ -151,7 +157,7 @@ function list() {
       address.textContent = new URL(connection.url).host;
       copy.append(name, address);
       row.append(tile, copy, indicator);
-      row.onclick = () => connect(connection.id);
+      row.onclick = () => openConnection(connection);
       // The row connects; the three dots beside it open that connection's settings.
       const more = document.createElement('button');
       more.className = 'connection-more';
@@ -194,9 +200,9 @@ function devices() {
     const open = document.createElement('button');
     open.className = 'device-preview';
     open.setAttribute('aria-label', t('ui.connectTo', { name: connection.name }));
-    open.title = connection.url;
+    open.title = publicURL(connection);
     preview(connection, open);
-    open.onclick = () => connect(connection.id);
+    open.onclick = () => openConnection(connection);
     const details = document.createElement('div');
     details.className = 'device-details';
     const copy = document.createElement('div');
@@ -324,7 +330,8 @@ function switcherList() {
 }
 async function choose(id: string) {
   await closeModal(switcher);
-  connect(id);
+  const connection = current.connections.find(connection => connection.id === id);
+  if (connection) openConnection(connection);
 }
 function render(state: AppState) {
   current = state;
@@ -333,13 +340,17 @@ function render(state: AppState) {
     shownLanguage = state.language;
     translate();
   }
+  const activeMagpie = state.magpie.active;
+  if (!pending && activeMagpie) selected = activeMagpie;
   if (state.status.id === pending) pending = undefined;
-  if (!pending && state.status.id && state.connections.some(connection => connection.id === state.status.id)) selected = state.status.id;
+  if (!pending && !activeMagpie && state.status.id && state.connections.some(connection => connection.id === state.status.id)) selected = state.status.id;
   if (selected && !state.connections.some(connection => connection.id === selected)) selected = undefined;
   const connection = selection();
   const active = connection?.id === state.status.id;
   const phase = active ? state.status.phase : 'idle';
-  const onDesktop = active && ['loading', 'loaded'].includes(phase);
+  const magpieConnection = state.magpie.active ? state.connections.find(connection => connection.id === state.magpie.active) : undefined;
+  const magpie = !!magpieConnection;
+  const onDesktop = magpie || (active && ['loading', 'loaded'].includes(phase));
   const keys = state.shortcutLabels;
   document.body.classList.toggle('sidebar-hidden', !state.layout.sidebar);
   document.body.classList.toggle('toolbar-hidden', !state.layout.toolbar);
@@ -348,18 +359,21 @@ function render(state: AppState) {
   document.body.classList.toggle('home-visible', !onDesktop);
   const compact = !state.layout.toolbar;
   document.querySelector('.main-header')!.classList.toggle('strip', compact);
-  element('title').textContent = connection?.name || 'Selkies Desk';
-  element('address').textContent = connection?.url || '';
-  element('status').textContent = t(`status.${phase}`);
-  element('status-dot').className = phase;
-  since = active && phase === 'loaded' ? state.status.since : undefined;
+  element('title').textContent = (magpieConnection || connection)?.name || 'Selkies Desk';
+  element('address').textContent = magpieConnection ? publicURL(magpieConnection) : connection?.url || '';
+  const magpieStatus = magpieConnection ? state.magpie.status[magpieConnection.id] : undefined;
+  element('status').textContent = t(`status.${magpieStatus?.phase || phase}`);
+  element('status-dot').className = magpieStatus?.phase || phase;
+  since = !magpie && active && phase === 'loaded' ? state.status.since : undefined;
   clock();
   const sidebarLabel = t(state.layout.sidebar ? 'ui.hideSidebar' : 'ui.showSidebar');
   button('toggle-sidebar').setAttribute('aria-label', sidebarLabel);
   button('toggle-sidebar').title = `${sidebarLabel} · ${keys.sidebar}`;
   button('settings').disabled = !connection;
-  button('connect').disabled = !connection || ['loading', 'loaded', 'waiting'].includes(phase);
-  button('disconnect').disabled = !active || !['loading', 'loaded', 'failed', 'waiting'].includes(phase);
+  const magpieOpen = !!magpieConnection;
+  const magpiePhase = magpieStatus?.phase || 'idle';
+  button('connect').disabled = !connection || (magpieOpen ? ['loading', 'loaded'].includes(magpiePhase) : ['loading', 'loaded', 'waiting'].includes(phase));
+  button('disconnect').disabled = magpieOpen ? !['loading', 'loaded', 'failed', 'waiting'].includes(magpiePhase) : !active || !['loading', 'loaded', 'failed', 'waiting'].includes(phase);
   button('reconnect').disabled = !connection;
   button('reconnect').title = `${t('ui.reconnect')} · ${keys.reconnect}`;
   const fullscreenLabel = t(state.fullscreen ? 'ui.exitFullscreen' : 'ui.enterFullscreen');
@@ -372,13 +386,14 @@ function render(state: AppState) {
   button('toggle-toolbar').setAttribute('aria-label', toolbarLabel);
   button('toggle-toolbar').title = `${toolbarLabel} · ${keys.toolbar}`;
   renderToolbarIcons(state.fullscreen, state.layout.sidebar, compact);
+  renderMagpieTabs(state);
   element('home').hidden = onDesktop;
-  element('connection-state').hidden = !['failed', 'loading', 'waiting', 'disconnected'].includes(phase);
-  element('state-title').textContent = t(`stateTitle.${phase}`);
-  element('state-detail').textContent = active ? state.status.detail : '';
-  button('state-connect').hidden = phase === 'loading';
-  button('state-connect').textContent = t(phase === 'waiting' ? 'ui.reconnectNow' : 'ui.connectThis');
-  button('state-stop').hidden = phase !== 'waiting';
+  element('connection-state').hidden = magpie ? !['failed', 'loading', 'waiting'].includes(magpieStatus?.phase || 'idle') : !['failed', 'loading', 'waiting', 'disconnected'].includes(phase);
+  element('state-title').textContent = t(`stateTitle.${magpieStatus?.phase || phase}`);
+  element('state-detail').textContent = magpie ? magpieStatus?.detail || '' : active ? state.status.detail : '';
+  button('state-connect').hidden = (magpieStatus?.phase || phase) === 'loading';
+  button('state-connect').textContent = t((magpieStatus?.phase || phase) === 'waiting' ? 'ui.reconnectNow' : 'ui.connectThis');
+  button('state-stop').hidden = (magpieStatus?.phase || phase) !== 'waiting';
   devices();
   list();
   const saved = current.connections.find(connection => connection.id === editing);
@@ -434,6 +449,38 @@ function prompts() {
     certificateDialog.showModal();
   }
 }
+
+function renderMagpieTabs(state: AppState) {
+  const tabs = element('magpie-tabs');
+  tabs.hidden = !state.magpie.tabs.length;
+  tabs.replaceChildren();
+  for (const id of state.magpie.tabs) {
+    const connection = state.connections.find(connection => connection.id === id);
+    if (!connection) continue;
+    const status = state.magpie.status[id];
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'magpie-tab';
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(state.magpie.active === id));
+    tab.textContent = connection.name;
+    tab.title = status?.detail || '';
+    tab.onclick = () => { void invoke({ type: 'magpieSelect', id }); };
+    const close = document.createElement('span');
+    close.className = 'magpie-close';
+    close.setAttribute('role', 'button');
+    close.setAttribute('aria-label', t('magpie.close'));
+    close.textContent = '×';
+    close.onclick = event => { event.stopPropagation(); void invoke({ type: 'magpieClose', id }); };
+    tab.append(close);
+    tabs.append(tab);
+  }
+}
+
+function openConnection(connection: AppState['connections'][number]) {
+  if (connection.kind === 'magpie') void invoke({ type: 'magpieOpen', id: connection.id });
+  else connect(connection.id);
+}
 /** Dialogs live in the management page, so the remote desktop is hidden while one is open. */
 async function openModal(dialog: HTMLDialogElement) {
   if (current.prompt || dialog.open) return false;
@@ -452,6 +499,7 @@ async function openEditor(connection?: Connection) {
   if (!await openModal(editor)) return;
   form.reset();
   for (const name of ['name', 'url', 'group', 'username', 'notes'] as const) field(name).value = connection?.[name] || '';
+  element<HTMLSelectElement>('kind').value = connection?.kind || 'selkies';
   field('fullscreen').checked = !!connection?.fullscreen;
   field('autoConnect').checked = !!connection?.autoConnect;
   element('editor-title').textContent = t(connection ? 'editor.edit' : 'editor.new');
@@ -494,6 +542,12 @@ button('settings').onclick = () => { if (selection()) void openEditor(selection(
 button('editor-cancel').onclick = () => { void closeEditor(); };
 editor.oncancel = event => { event.preventDefault(); void closeEditor(); };
 field('url').oninput = () => { element('http-warning').hidden = !field('url').value.startsWith('http:'); };
+element<HTMLSelectElement>('kind').onchange = () => {
+  const magpie = element<HTMLSelectElement>('kind').value === 'magpie';
+  field('username').closest('label')!.hidden = magpie;
+  field('fullscreen').closest('label')!.hidden = magpie;
+  field('autoConnect').closest('label')!.hidden = magpie;
+};
 input('search').oninput = () => { list(); devices(); };
 form.onsubmit = async event => {
   event.preventDefault();

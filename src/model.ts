@@ -7,29 +7,43 @@ import { t } from './i18n';
 import { commands } from './platform';
 import { videoEncoders } from './video';
 
-const httpURL = z.string().trim().max(2048).transform((value, context) => {
+function httpURL(allowKey: boolean) {
+  return z.string().trim().max(2048).transform((value, context) => {
   try {
     const parsed = new URL(value.includes('://') ? value : `https://${value}`);
-    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.search || parsed.hash) throw Error();
-    return parsed.href;
+      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.hash) throw Error();
+      if (!allowKey) {
+        if (parsed.search) throw Error();
+      } else {
+        const keys = [...parsed.searchParams.keys()];
+        if (keys.length !== 1 || keys[0] !== 'k' || !parsed.searchParams.get('k') || parsed.searchParams.get('k')!.length > 512) throw Error();
+      }
+      return parsed.href;
   } catch {
     context.addIssue({ code: 'custom', message: t('model.url') });
     return z.NEVER;
   }
-});
+  });
+}
 
-export const connectionSchema = z.object({
+const connectionBase = z.object({
   id: z.uuid().optional(),
   name: z.string().trim().min(1).max(80),
-  url: httpURL,
   group: z.string().trim().max(60).default(''),
   notes: z.string().max(1000).default(''),
   username: z.string().trim().max(200).default(''),
   fullscreen: z.boolean().default(false),
   autoConnect: z.boolean().default(false)
 }).strict();
+const selkiesSchema = connectionBase.extend({ kind: z.literal('selkies').default('selkies'), url: httpURL(false) });
+const magpieSchema = connectionBase.extend({ kind: z.literal('magpie'), url: httpURL(true) });
+function connectionFor(value: { kind?: unknown }) { return value?.kind === 'magpie' ? magpieSchema : selkiesSchema; }
+export const connectionSchema = z.unknown().transform((value, context) => {
+  const result = connectionFor(value as { kind?: unknown }).safeParse(value);
+  return result.success ? result.data : (result.error.issues.forEach(issue => context.addIssue({ code: 'custom', message: issue.message })), z.NEVER);
+});
 
-export type Connection = z.output<typeof connectionSchema> & { id: string };
+export type Connection = (z.output<typeof selkiesSchema> | z.output<typeof magpieSchema>) & { id: string };
 export const connectionID = z.uuid();
 const importSchema = z.object({
   version: z.literal(1),
@@ -82,11 +96,16 @@ export const settingsPatchSchema = z.object({
 }).strict();
 const stateSchema = z.object({
   version: z.literal(1),
-  connections: z.array(connectionSchema.extend({ id: z.uuid() })).max(200),
+  connections: z.array(z.unknown().transform((value, context) => {
+    const schema = connectionFor(value as { kind?: unknown }).extend({ id: z.uuid() });
+    const result = schema.safeParse(value);
+    return result.success ? result.data : (result.error.issues.forEach(issue => context.addIssue({ code: 'custom', message: issue.message })), z.NEVER);
+  })).max(200),
   certificates: z.record(z.string(), z.object({ origin: z.string(), fingerprint: z.string() }).strict()).default({}),
   layout: layoutSchema.default(defaultLayout),
   ball: ballSchema.optional(),
   settings: settingsSchema.optional(),
+  magpieTabs: z.array(z.uuid()).max(12).default([]),
   window: z.object({
     width: z.number().int().min(900).max(10000),
     height: z.number().int().min(620).max(10000)
@@ -127,7 +146,7 @@ export class Store {
     this.file = join(directory, 'connections.json');
     this.state = existsSync(this.file)
       ? stateSchema.parse(JSON.parse(readFileSync(this.file, 'utf8')))
-      : { version: 1, connections: [], certificates: {}, layout: { ...defaultLayout } };
+      : { version: 1, connections: [], certificates: {}, layout: { ...defaultLayout }, magpieTabs: [] };
     if (new Set(this.state.connections.map(connection => connection.id)).size !== this.state.connections.length) throw Error(t('model.duplicateID'));
   }
   get connections(): Connection[] { return this.state.connections.map(connection => ({ ...connection })); }
@@ -174,7 +193,7 @@ export class Store {
     this.flush();
   }
   export() {
-    return JSON.stringify({ version: 1, connections: this.connections }, null, 2);
+    return JSON.stringify({ version: 1, connections: this.connections.filter(connection => connection.kind !== 'magpie') }, null, 2);
   }
   import(data: ReturnType<typeof parseImport>) {
     if (data.connections.length + this.connections.length > 200) throw Error(t('model.importLimit'));
@@ -203,6 +222,12 @@ export class Store {
   }
   setWindow(width: number, height: number) {
     this.state.window = { width, height };
+    this.flush();
+  }
+  get magpieTabs(): string[] { return [...this.state.magpieTabs]; }
+  setMagpieTabs(ids: string[]) {
+    const known = new Set(this.connections.filter(connection => connection.kind === 'magpie').map(connection => connection.id));
+    this.state.magpieTabs = [...new Set(ids)].filter(id => known.has(id)).slice(0, 12);
     this.flush();
   }
   private flush() { writePrivateJSON(this.file, this.state); }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { connectionSchema, connectionID, settingsPatchSchema, type Connection, type Settings } from './model';
+import type { MagpieState } from './magpie';
 import type { Language } from './i18n';
 import { commands, type OS, type Shortcuts } from './platform';
 import type { Layout } from './layout';
@@ -11,6 +12,9 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save'), connection: connectionSchema }).strict(),
   z.object({ type: z.literal('delete'), id: connectionID }).strict(),
   z.object({ type: z.literal('connect'), id: connectionID }).strict(),
+  z.object({ type: z.literal('magpieOpen'), id: connectionID }).strict(),
+  z.object({ type: z.literal('magpieSelect'), id: connectionID }).strict(),
+  z.object({ type: z.literal('magpieClose'), id: connectionID }).strict(),
   z.object({ type: z.literal('disconnect') }).strict(),
   z.object({ type: z.literal('reconnect') }).strict(),
   z.object({ type: z.literal('fullscreen') }).strict(),
@@ -55,6 +59,7 @@ export type AppState = {
   /** `thumbnail` is a cache key (0 = none); the image itself is fetched with the `thumbnail` action. */
   connections: (Connection & { savedPassword: boolean; certificateTrusted: boolean; thumbnail: number })[];
   status: RemoteStatus;
+  magpie: MagpieState;
   prompt?: Prompt;
   fullscreen: boolean;
   encryptionAvailable: boolean;

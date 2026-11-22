@@ -26,6 +26,27 @@ test('地址只接受 HTTP(S) 且不接受 URL 凭据或可能泄露凭据的参
   assert.throws(() => parseConnection({ ...input, name: '' }));
 });
 
+test('Magpie 连接只允许 k 查询参数，多开标签可持久化且导出不携带 k', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'selkies-magpie-'));
+  try {
+    const store = new Store(directory);
+    const input = parseConnection({ name: '工作台', url: 'https://example.test:8443', group: '', notes: '', username: '' });
+    const magpie = store.save({ ...input, kind: 'magpie', url: 'http://192.168.32.42:3430/?k=aaec225e12e1ec222774aa7a9cc370fa', username: '' });
+    assert.equal(magpie.kind, 'magpie');
+    for (const url of [
+      'http://192.168.32.42:3430/?token=secret',
+      'http://192.168.32.42:3430/?k=secret&other=1',
+      'http://192.168.32.42:3430/?k=',
+      'http://user:secret@192.168.32.42:3430/?k=secret',
+      'http://192.168.32.42:3430/page#fragment'
+    ]) assert.throws(() => parseConnection({ ...input, kind: 'magpie', url }));
+    store.setMagpieTabs([magpie.id]);
+    assert.deepEqual(new Store(directory).magpieTabs, [magpie.id]);
+    assert.equal(store.export().includes('aaec225e'), false);
+    assert.equal(store.export().includes('Magpie'), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('同主机不同端口保留为独立连接，导入冲突不覆盖或复用会话 ID', () => {
   const directory = mkdtempSync(join(tmpdir(), 'selkies-model-'));
   try {

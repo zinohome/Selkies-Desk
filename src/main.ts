@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { Store, matchesOrigin, parseImport } from './model';
 import { Vault } from './vault';
 import { Remote } from './remote';
+import { Magpie } from './magpie';
 import { actionSchema, type Action, type AppState, type Result } from './protocol';
 import { ballBounds, defaultLayout, desktopBounds, draggedBall, effectiveLayout, fullscreenInset, homeLayout, snapBall, stripHeight } from './layout';
 import { commands, effectiveShortcuts, matchShortcut, osOf, platformName, shortcutLabel, trustedStorage, validShortcut, type Command, type Shortcuts } from './platform';
@@ -27,6 +28,7 @@ let window: BrowserWindow;
 let store: Store;
 let vault: Vault;
 let remote: Remote;
+let magpie: Magpie;
 let encryptionAvailable = false;
 let quitting = false;
 let tray: Tray | undefined;
@@ -72,7 +74,8 @@ function state(): AppState {
     })),
     status: remote.status, prompt: remote.prompt,
     fullscreen: window.isFullScreen(), encryptionAvailable,
-    layout: remote.visible ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
+    layout: remote.visible || magpie?.active ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
+    magpie: magpie?.state || { tabs: store.magpieTabs, status: {} },
     platform: { os, name: platformName(os), integratedTitleBar },
     version: app.getVersion(), update: updater.state, language: language(), settings: settings(), shortcuts: keys,
     shortcutLabels: Object.fromEntries(commands.map(command => [command, shortcutLabel(os, keys[command])])) as Shortcuts
@@ -128,6 +131,7 @@ async function perform(action: Action): Promise<Result> {
       if (old && (old.url !== action.connection.url || old.username !== action.connection.username)) {
         await transition(async () => {
           if (remote.activeID === old.id) await remote.disconnect();
+          await magpie.close(old.id);
           if (!matchesOrigin(old.url, action.connection.url) || old.username !== action.connection.username) await remote.clearPassword(old.id);
         });
       }
@@ -139,6 +143,7 @@ async function perform(action: Action): Promise<Result> {
       await transition(async () => {
         store.get(action.id);
         if (remote.activeID === action.id) await remote.disconnect();
+        await magpie.close(action.id);
         await remote.clearPassword(action.id);
         await session.fromPartition(`persist:selkies-${action.id}`).clearStorageData();
         store.delete(action.id);
@@ -148,6 +153,11 @@ async function perform(action: Action): Promise<Result> {
       publish();
       return { ok: true, state: state() };
     case 'connect': await transition(() => remote.connect(action.id)); break;
+    case 'magpieOpen':
+      await transition(async () => { if (remote.activeID) await remote.disconnect(); await magpie.open(action.id); });
+      break;
+    case 'magpieSelect': await transition(async () => magpie.select(action.id)); break;
+    case 'magpieClose': await transition(() => magpie.close(action.id)); break;
     case 'disconnect': await transition(() => remote.disconnect()); break;
     case 'reconnect': {
       const id = remote.activeID;
@@ -414,6 +424,7 @@ async function start() {
       publish();
     }
   });
+  magpie = new Magpie(window, store, publish);
   controls = new WebContentsView({
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }
   });
@@ -445,9 +456,9 @@ async function start() {
       return { ok: false, error: message };
     }
   });
-  window.on('resize', () => { remote.layout(); layoutControls(); });
-  window.on('enter-full-screen', () => { controlsExpanded = false; remote.layout(); publish(); });
-  window.on('leave-full-screen', () => { buttonPosition = ''; controlsExpanded = false; remote.layout(); publish(); });
+  window.on('resize', () => { remote.layout(); magpie.layout(); layoutControls(); });
+  window.on('enter-full-screen', () => { controlsExpanded = false; remote.layout(); magpie.layout(); publish(); });
+  window.on('leave-full-screen', () => { buttonPosition = ''; controlsExpanded = false; remote.layout(); magpie.layout(); publish(); });
   window.on('closed', () => { if (!controls.webContents.isDestroyed()) controls.webContents.close(); });
   window.on('close', event => {
     if (quitting) return;
@@ -475,7 +486,7 @@ if (locked) {
     quitting = true;
     clearInterval(updateTimer);
     saveWindow();
-    void transition(() => remote.disconnect()).finally(() => app.quit());
+    void transition(async () => { await remote.disconnect(); await magpie.closeAll(); }).finally(() => app.quit());
   });
   app.on('will-quit', () => { if (tray && !tray.isDestroyed()) tray.destroy(); });
   app.on('window-all-closed', () => app.quit());
