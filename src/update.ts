@@ -63,7 +63,12 @@ export function parseChecksums(text: string) {
   const sums = new Map<string, string>();
   for (const line of text.split('\n')) {
     const match = /^([0-9a-f]{64})\s+\*?(.+)$/i.exec(line.trim());
-    if (match) sums.set(match[2].trim(), match[1].toLowerCase());
+    if (match) {
+      const name = match[2].trim();
+      sums.set(name, match[1].toLowerCase());
+      const basename = name.replace(/^.*[\\/]/, '');
+      if (basename !== name) sums.set(basename, match[1].toLowerCase());
+    }
   }
   return sums;
 }

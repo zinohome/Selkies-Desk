@@ -511,6 +511,7 @@ test('更新：版本比较、按系统选择安装包、拒绝仓库之外的�
   const sums = parseChecksums(`${'a'.repeat(64)}  ${names[0]}\n${'B'.repeat(64)} *${names[3]}\nnot a checksum line\n`);
   assert.equal(sums.get(names[0]), 'a'.repeat(64));
   assert.equal(sums.get(names[3]), 'b'.repeat(64));
+  assert.equal(parseChecksums(`${'c'.repeat(64)}  release/${names[0]}`).get(names[0]), 'c'.repeat(64));
   assert.equal(sums.size, 2);
   assert.equal(macBundle('/Applications/Selkies Desk.app/Contents/MacOS/Selkies Desk'), '/Applications/Selkies Desk.app');
   assert.equal(macBundle('/usr/local/bin/selkies-desk'), undefined);
