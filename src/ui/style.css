@@ -155,11 +155,11 @@ h1 { font-size: 13px; font-weight: 600; margin: 0; line-height: 1.35; overflow: 
 .main-header.strip .action-divider { height: 12px; }
 
 .desktop { position: absolute; inset: 52px 0 0; overflow: auto; }
-.magpie-tabs { position: absolute; z-index: 30; left: 232px; right: 12px; top: 8px; display: flex; align-items: center; gap: 6px; overflow: auto; }
-body.sidebar-hidden .magpie-tabs { left: 12px; }
-.magpie-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; border: 1px solid var(--border); border-radius: 999px; background: color-mix(in srgb, var(--panel) 88%, transparent); padding: 5px 10px; color: var(--text); font-size: 12px; }
+.magpie-tabs { height: var(--magpie-tabs-height); display: flex; align-items: center; gap: 6px; overflow: auto; padding: 0 12px; }
+.magpie-tab-item { display: flex; flex: none; align-items: center; gap: 2px; }
+.magpie-tab { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); padding: 5px 10px; color: var(--text); font-size: 12px; }
 .magpie-tab[aria-selected=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--panel)); }
-.magpie-close { border-radius: 999px; padding: 0 3px; color: var(--faint); }
+.magpie-close { border-radius: 999px; padding: 0 6px; color: var(--faint); }
 .magpie-close:hover { color: var(--text); background: var(--hover); }
 .toolbar-hidden .desktop { top: 0; }
 .titlebar.toolbar-hidden:not(.fullscreen) .desktop { top: 28px; }
@@ -167,6 +167,7 @@ body.sidebar-hidden .magpie-tabs { left: 12px; }
 /* Home */
 .home { padding: 22px 28px 40px; max-width: 1240px; margin: auto; }
 .home-title { font-size: 20px; font-weight: 600; margin: 0 0 16px; letter-spacing: -.2px; }
+#magpie-restore { margin-bottom: 16px; }
 .device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
 .device-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); transition: box-shadow .12s, transform .12s; }
 .device-card:hover { box-shadow: 0 6px 20px rgb(0 0 0 / 12%); transform: translateY(-1px); }

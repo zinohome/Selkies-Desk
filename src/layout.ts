@@ -9,6 +9,7 @@ export const defaultLayout: Layout = { sidebar: true, toolbar: true };
 export const homeLayout: Layout = { sidebar: true, toolbar: true };
 export const sidebarWidth = 232;
 export const toolbarHeight = 52;
+export const magpieTabsHeight = 40;
 /** Height of the slim drag strip that replaces the native title bar in focus mode. */
 export const stripHeight = 28;
 

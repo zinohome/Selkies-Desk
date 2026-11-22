@@ -9,20 +9,16 @@ import { videoEncoders } from './video';
 
 function httpURL(allowKey: boolean) {
   return z.string().trim().max(2048).transform((value, context) => {
-  try {
-    const parsed = new URL(value.includes('://') ? value : `https://${value}`);
+    try {
+      const parsed = new URL(value.includes('://') ? value : `https://${value}`);
       if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.hash) throw Error();
-      if (!allowKey) {
-        if (parsed.search) throw Error();
-      } else {
-        const keys = [...parsed.searchParams.keys()];
-        if (keys.length !== 1 || keys[0] !== 'k' || !parsed.searchParams.get('k') || parsed.searchParams.get('k')!.length > 512) throw Error();
-      }
+      const key = parsed.searchParams.get('k');
+      if (parsed.search && (!allowKey || parsed.searchParams.size !== 1 || !key || key.length > 512)) throw Error();
       return parsed.href;
-  } catch {
-    context.addIssue({ code: 'custom', message: t('model.url') });
-    return z.NEVER;
-  }
+    } catch {
+      context.addIssue({ code: 'custom', message: t(allowKey ? 'model.magpieURL' : 'model.url') });
+      return z.NEVER;
+    }
   });
 }
 

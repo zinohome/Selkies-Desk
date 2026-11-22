@@ -40,7 +40,7 @@
         </div>
       </header>
       <section class="desktop" aria-live="polite">
-        <nav id="magpie-tabs" hidden></nav>
+        <nav id="magpie-tabs" class="magpie-tabs" role="tablist" aria-label="Magpie" hidden></nav>
         <div id="connection-state" class="connection-state" hidden>
           <h2 id="state-title"></h2>
           <p id="state-detail"></p>
@@ -51,6 +51,7 @@
         </div>
         <div id="home" class="home">
           <h2 class="home-title" data-i18n="ui.connections"></h2>
+          <button id="magpie-restore" data-i18n="magpie.restore" hidden></button>
           <div id="devices" class="device-grid"></div>
           <p id="no-match" class="no-match" data-i18n="ui.noMatch" hidden></p>
           <div id="no-devices" class="no-devices">
@@ -80,7 +81,7 @@
         <label class="checkbox wide"><input type="checkbox" name="autoConnect"><span data-i18n="editor.autoConnect"></span></label>
       </div>
       <div id="security-settings" class="security-settings" hidden>
-        <div><span id="password-status"></span><button type="button" id="clear-password" data-i18n="editor.clearPassword"></button></div>
+        <div id="password-settings"><span id="password-status"></span><button type="button" id="clear-password" data-i18n="editor.clearPassword"></button></div>
         <div><span id="certificate-status"></span><button type="button" id="revoke-certificate" data-i18n="editor.revoke"></button></div>
       </div>
       <p id="form-error" class="error" role="alert"></p>

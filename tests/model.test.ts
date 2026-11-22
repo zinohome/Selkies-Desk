@@ -20,29 +20,36 @@ const input = { name: '工作台', url: 'https://example.test:8443', group: '开
 
 test('地址只接受 HTTP(S) 且不接受 URL 凭据或可能泄露凭据的参数', () => {
   assert.equal(parseConnection(input).url, 'https://example.test:8443/');
-  for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'https://alice:secret@example.test', 'https://example.test/?token=secret', 'https://example.test/#secret']) {
+  assert.equal(parseConnection({ ...input, url: 'http://example.test:8444' }).url, 'http://example.test:8444/');
+  for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'https://alice:secret@example.test', 'https://example.test/?token=secret', 'http://example.test/?k=fixture', 'https://example.test/#secret']) {
     assert.throws(() => parseConnection({ ...input, url }));
   }
   assert.throws(() => parseConnection({ ...input, name: '' }));
 });
 
-test('Magpie 连接只允许 k 查询参数，多开标签可持久化且导出不携带 k', () => {
+test('Magpie 接受 HTTP(S) 地址和可选的 k 查询参数，持久化标签且不导出 Magpie 地址', () => {
   const directory = mkdtempSync(join(tmpdir(), 'selkies-magpie-'));
   try {
     const store = new Store(directory);
     const input = parseConnection({ name: '工作台', url: 'https://example.test:8443', group: '', notes: '', username: '' });
-    const magpie = store.save({ ...input, kind: 'magpie', url: 'http://192.168.32.42:3430/?k=aaec225e12e1ec222774aa7a9cc370fa', username: '' });
+    const magpie = store.save({ ...input, kind: 'magpie', url: 'http://magpie.example.test:3430/?k=fixture-magpie-key', username: '' });
     assert.equal(magpie.kind, 'magpie');
+    const local = store.save({ ...input, kind: 'magpie', url: 'http://192.168.20.5:3430/status' });
+    assert.equal(local.url, 'http://192.168.20.5:3430/status');
+    assert.equal(parseConnection({ ...input, kind: 'magpie', url: 'https://magpie.example.test/' }).url, 'https://magpie.example.test/');
     for (const url of [
-      'http://192.168.32.42:3430/?token=secret',
-      'http://192.168.32.42:3430/?k=secret&other=1',
-      'http://192.168.32.42:3430/?k=',
-      'http://user:secret@192.168.32.42:3430/?k=secret',
-      'http://192.168.32.42:3430/page#fragment'
+      'http://magpie.example.test:3430/?token=secret',
+      'http://magpie.example.test:3430/?k=secret&other=1',
+      'http://magpie.example.test:3430/?k=secret&k=another',
+      'http://magpie.example.test:3430/?k=',
+      'http://user:secret@magpie.example.test:3430/?k=secret',
+      'http://magpie.example.test:3430/page#fragment'
     ]) assert.throws(() => parseConnection({ ...input, kind: 'magpie', url }));
     store.setMagpieTabs([magpie.id]);
-    assert.deepEqual(new Store(directory).magpieTabs, [magpie.id]);
-    assert.equal(store.export().includes('aaec225e'), false);
+    const reopened = new Store(directory);
+    assert.deepEqual(reopened.magpieTabs, [magpie.id]);
+    assert.deepEqual(reopened.get(local.id), local);
+    assert.equal(store.export().includes('fixture-magpie-key'), false);
     assert.equal(store.export().includes('Magpie'), false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

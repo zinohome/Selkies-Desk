@@ -74,8 +74,8 @@ function state(): AppState {
     })),
     status: remote.status, prompt: remote.prompt,
     fullscreen: window.isFullScreen(), encryptionAvailable,
-    layout: remote.visible || magpie?.active ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
-    magpie: magpie?.state || { tabs: store.magpieTabs, status: {} },
+    layout: remote.visible || magpie.active ? layout() : homeLayout, preferredLayout: store.layout, controlsExpanded, controlsInset: controlsInset(), ballSide: store.ball.side,
+    magpie: magpie.state,
     platform: { os, name: platformName(os), integratedTitleBar },
     version: app.getVersion(), update: updater.state, language: language(), settings: settings(), shortcuts: keys,
     shortcutLabels: Object.fromEntries(commands.map(command => [command, shortcutLabel(os, keys[command])])) as Shortcuts
@@ -95,7 +95,7 @@ function publish() {
 /** Keeps the macOS window buttons centred in whichever bar is at the top: the 52 px toolbar or the 28 px strip. */
 function placeWindowButtons() {
   if (!integratedTitleBar || window.isFullScreen()) return;
-  const slim = remote.visible && !layout().toolbar;
+  const slim = (remote.visible || !!magpie.active) && !layout().toolbar;
   const position = slim ? { x: 10, y: 7 } : { x: 16, y: 19 };
   const key = `${position.x},${position.y}`;
   if (key === buttonPosition) return;
@@ -128,11 +128,11 @@ async function perform(action: Action): Promise<Result> {
     case 'state': return { ok: true, state: state() };
     case 'save': {
       const old = action.connection.id ? store.get(action.connection.id) : undefined;
-      if (old && (old.url !== action.connection.url || old.username !== action.connection.username)) {
+      if (old && (old.kind !== action.connection.kind || old.url !== action.connection.url || old.username !== action.connection.username)) {
         await transition(async () => {
           if (remote.activeID === old.id) await remote.disconnect();
           await magpie.close(old.id);
-          if (!matchesOrigin(old.url, action.connection.url) || old.username !== action.connection.username) await remote.clearPassword(old.id);
+          if (old.kind !== action.connection.kind || !matchesOrigin(old.url, action.connection.url) || old.username !== action.connection.username) await remote.clearPassword(old.id);
         });
       }
       const connection = store.save(action.connection);
@@ -141,31 +141,47 @@ async function perform(action: Action): Promise<Result> {
     }
     case 'delete':
       await transition(async () => {
-        store.get(action.id);
+        const connection = store.get(action.id);
         if (remote.activeID === action.id) await remote.disconnect();
         await magpie.close(action.id);
         await remote.clearPassword(action.id);
-        await session.fromPartition(`persist:selkies-${action.id}`).clearStorageData();
+        await session.fromPartition(`persist:${connection.kind}-${action.id}`).clearStorageData();
         store.delete(action.id);
         thumbnails.remove(action.id);
         remote.forget(action.id);
       });
       publish();
       return { ok: true, state: state() };
-    case 'connect': await transition(() => remote.connect(action.id)); break;
-    case 'magpieOpen':
-      await transition(async () => { if (remote.activeID) await remote.disconnect(); await magpie.open(action.id); });
+    case 'connect':
+      await transition(async () => {
+        if (store.get(action.id).kind === 'magpie') {
+          if (remote.activeID && remote.status.phase !== 'disconnected') await remote.disconnect();
+          magpie.open(action.id);
+        } else {
+          magpie.deactivate();
+          await remote.connect(action.id);
+        }
+      });
       break;
-    case 'magpieSelect': await transition(async () => magpie.select(action.id)); break;
+    case 'magpieRestore':
+      await transition(async () => {
+        if (remote.activeID && remote.status.phase !== 'disconnected') await remote.disconnect();
+        magpie.restore();
+      });
+      break;
     case 'magpieClose': await transition(() => magpie.close(action.id)); break;
-    case 'disconnect': await transition(() => remote.disconnect()); break;
+    case 'disconnect': await transition(() => magpie.active ? magpie.close(magpie.active.id) : remote.disconnect()); break;
     case 'reconnect': {
-      const id = remote.activeID;
-      if (id) await transition(() => remote.connect(id));
+      await transition(async () => {
+        const connection = magpie.active;
+        if (connection) magpie.open(connection.id, true);
+        else if (remote.activeID) await remote.connect(remote.activeID);
+      });
       break;
     }
     case 'modal':
       remote.setModal(action.open);
+      magpie.setModal(action.open);
       if (!action.open) recording = false;
       publish();
       break;
@@ -210,6 +226,7 @@ async function perform(action: Action): Promise<Result> {
       else store.setLayout({ ...layout, [action.target]: !layout[action.target] });
       controlsExpanded = false;
       remote.layout();
+      magpie.layout();
       publish();
       remote.focus();
       break;
@@ -313,13 +330,14 @@ function createTray() {
   tray.setIgnoreDoubleClickEvents(true);
   tray.on('click', showWindow);
   tray.on('right-click', () => {
-    const connection = store.connections.find(connection => connection.id === remote.activeID);
+    const connection = magpie.active ?? store.connections.find(connection => connection.id === remote.activeID);
+    const phase = magpie.active ? magpie.state.status[magpie.active.id].phase : remote.status.phase;
     tray!.popUpContextMenu(Menu.buildFromTemplate([
-      { label: connection ? `${connection.name} — ${t(`status.${remote.status.phase}`)}` : t(`status.${remote.status.phase}`), enabled: false },
+      { label: connection ? `${connection.name} — ${t(`status.${phase}`)}` : t(`status.${phase}`), enabled: false },
       { label: t('menu.open'), click: showWindow },
       { type: 'separator' },
-      { label: t('menu.reconnect'), enabled: !!remote.activeID, click: () => { void perform({ type: 'reconnect' }); } },
-      { label: t('menu.disconnect'), enabled: !!remote.activeID && remote.status.phase !== 'disconnected', click: () => { void perform({ type: 'disconnect' }); } },
+      { label: t('menu.reconnect'), enabled: !!connection, click: () => { void perform({ type: 'reconnect' }); } },
+      { label: t('menu.disconnect'), enabled: !!connection && phase !== 'disconnected', click: () => { void perform({ type: 'disconnect' }); } },
       { type: 'separator' },
       { label: t('menu.settings'), click: () => manage('settings') },
       { label: t('menu.quit'), click: () => app.quit() }
@@ -424,7 +442,7 @@ async function start() {
       publish();
     }
   });
-  magpie = new Magpie(window, store, publish);
+  magpie = new Magpie(window, store, publish, { layout, strip, onInput: intercept });
   controls = new WebContentsView({
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false, navigateOnDragDrop: false }
   });
@@ -474,7 +492,7 @@ async function start() {
   await controls.webContents.loadURL(controlsURL);
   await window.loadURL(uiURL);
   scheduleUpdates();
-  const automatic = store.connections.find(connection => connection.autoConnect);
+  const automatic = store.connections.find(connection => connection.kind === 'selkies' && connection.autoConnect);
   if (automatic) void perform({ type: 'connect', id: automatic.id }).catch(() => {});
 }
 if (locked) {

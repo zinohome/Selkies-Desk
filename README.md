@@ -2,6 +2,8 @@
 
 Selkies 多服务器桌面客户端（macOS / Windows / Ubuntu），使用 Electron + TypeScript，提供独立会话、受控认证及证书管理。
 
+0.6.3 修复 Magpie 连接类型在保存时丢失的问题。Magpie 支持普通 HTTP(S) 地址和带一个 `k` 参数的地址，修复了网页遮住标签栏、设置窗口及 HTTP 401 显示空白的问题。macOS 安装包和校验清单见 [v0.6.3 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.3)。
+
 0.6.2 修复 0.6.0 设置页文案为空的问题，并将连接类型下拉框调整为“标签在上、选项在下”，与后续字段保留清晰间距。源码与 macOS arm64 / x64 安装包发布在 [v0.6.2 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.2)。
 
 0.6.0 新增 Magpie Web 连接类型：地址仅允许一个 `k` 查询参数；每个节点使用独立会话分区，主窗口中最多 12 个标签同时打开，关闭应用后下次启动可一键恢复上次标签。`k` 作为本机凭据处理，界面不显示完整值，配置导出不包含 Magpie 连接。Selkies 连接继续只保留一个活跃桌面。源码与 macOS arm64 / x64 安装包发布在 [v0.6.0 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.0)。
@@ -28,4 +30,4 @@ npm run package       # macOS arm64
 npm run package:all   # macOS arm64/x64、Windows x64、Ubuntu amd64
 ```
 
-只有 Apple Silicon / arm64 的 macOS 包在本机完整运行测试过；本次 macOS x64 包已构建并完成架构、签名与 DMG 校验，但未在 Intel Mac 或本机 Rosetta 环境启动。Windows 和 Ubuntu 的历史版本包已构建但未在对应系统运行。macOS 包采用 ad-hoc 签名，未经 Apple Developer ID 签名或公证；Windows 包未签名。本次 macOS arm64 / x64 安装包发布在 [GitHub Releases](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.5.4)，附 `SHA256SUMS-0.5.4.txt` 供核对。
+本版 Apple Silicon / arm64 安装包通过 macOS 成品运行测试。Intel / x64 安装包已核对架构、签名与 DMG，实机启动待验证。macOS 包采用 ad-hoc 签名，未经 Apple Developer ID 签名或公证。Windows 和 Ubuntu 可在 GitHub Releases 查阅历史安装包。
