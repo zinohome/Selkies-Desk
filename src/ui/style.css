@@ -199,7 +199,7 @@ dialog h2 + section { border-top: 0; padding-top: 0; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .wide { grid-column: 1 / -1; }
 label { display: block; color: var(--muted); font-size: 12px; }
-label input:not([type=checkbox]), label textarea { display: block; width: 100%; margin-top: 5px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--text); font-size: 13px; resize: vertical; }
+label input:not([type=checkbox]), label textarea, label select { display: block; width: 100%; margin-top: 5px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--text); font-size: 13px; resize: vertical; }
 label input::placeholder, label textarea::placeholder { color: var(--faint); }
 #auth-form > label { margin-top: 12px; }
 label.checkbox { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 13px; padding: 4px 0; }

@@ -2,7 +2,7 @@
 
 Selkies 多服务器桌面客户端（macOS / Windows / Ubuntu），使用 Electron + TypeScript，提供独立会话、受控认证及证书管理。
 
-0.6.1 修复 0.6.0 新增连接类型标签引用错误导致设置页文案为空的问题。源码与 macOS arm64 / x64 安装包发布在 [v0.6.1 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.1)。
+0.6.2 修复 0.6.0 设置页文案为空的问题，并将连接类型下拉框调整为“标签在上、选项在下”，与后续字段保留清晰间距。源码与 macOS arm64 / x64 安装包发布在 [v0.6.2 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.2)。
 
 0.6.0 新增 Magpie Web 连接类型：地址仅允许一个 `k` 查询参数；每个节点使用独立会话分区，主窗口中最多 12 个标签同时打开，关闭应用后下次启动可一键恢复上次标签。`k` 作为本机凭据处理，界面不显示完整值，配置导出不包含 Magpie 连接。Selkies 连接继续只保留一个活跃桌面。源码与 macOS arm64 / x64 安装包发布在 [v0.6.0 Release](https://github.com/zinohome/Selkies-Desk/releases/tag/v0.6.0)。
 
